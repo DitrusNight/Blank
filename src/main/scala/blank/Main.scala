@@ -9,7 +9,7 @@ object Main {
     val fileHandler = Source.fromFile(file);
     val src = fileHandler.getLines().mkString("\n");
     fileHandler.close();
-    val ast = BlankParser.parse(src);
+    val ast = new BlankParser().parse(src);
   }
 
 }

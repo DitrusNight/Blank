@@ -1,1 +1,11 @@
-1 + 4 * (4 + 1)
+let thing = 5 * {1 + 1};
+thing + 1;
+fn test(x) => {
+    1
+};
+let test2 = (x: Int): Unit => {
+    x + 5
+};
+let test3 = (x: Int, y, z: Z): Unit => {
+    x + 5
+}
