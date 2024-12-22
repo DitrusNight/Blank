@@ -31,7 +31,7 @@ class Tokenizer(var index: Int, var src: String) {
         val idRegex: Regex = "^([a-zA-Z_$][0-9a-zA-Z_$]*)(?:.|\n)*".r;
         val floatLitRegex: Regex = "^([0-9]+\\.[0-9]+)(?:.|\n)*".r;
         val intLitRegex: Regex = "^([0-9]+)(?:.|\n)*".r;
-        val delimRegex: Regex = "^([{};,():])(?:.|\n)*".r;
+        val delimRegex: Regex = "^([{};,():.])(?:.|\n)*".r;
         val opRegex: Regex = "^([\\-+*/=>])(?:.|\n)*".r;
         val substr = src.substring(index);
 

@@ -1,0 +1,37 @@
+(Volatile) Global variables
+Local variables on the stack
+
+Assume heap allocation before flattening to struct.
+Structs can be flattened to local variables.
+
+Denote movement
+Cost analysis
+
+If a pointer to a stack item is put into another place, then the pointer
+must not be moved to the heap, or higher on the stack.
+
+Whenever an item is returned, it must be marked as not able to store local stack allocated pointers.
+Items stored into marked values are to be marked.
+Global variables are marked.
+
+If an item is marked, it can store structures though.
+
+
+Function variants depending on usage.
+
+
+
+Cost Analysis:
+Heap Allocation is extremely expensive, but once done, size doesn't matter.
+Pointer accessing is slightly expensive.
+Accessing a stack item is extremely cheap
+Passing a pointer is extremely cheap.
+Passing a structure costs proportional to the size.
+
+Function relations between return and arguments.
+
+Maintain coherence between many references.
+Allow for recursion structure definitions.
+
+Can request memory allocation from parent function.
+
