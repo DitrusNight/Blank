@@ -1,11 +1,4 @@
 let thing = 5 * {1 + 1};
-thing + 1;
-fn test(x) => {
-    1
-};
-let test2: (): Unit = (): Unit => {
-    x + 5
-};
 let test3: (Int, X, Z): Unit = (x: Int, y, z: Z): Unit => {
     x + 5;
     print(x);

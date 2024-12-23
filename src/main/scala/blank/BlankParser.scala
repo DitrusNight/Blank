@@ -2,7 +2,6 @@ package blank
 
 import scala.util.boundary
 import scala.util.boundary.break
-import scala.util.control.Breaks.breakable
 
 abstract class Expression
 case class Lit(lit: String) extends Expression {
@@ -14,8 +13,8 @@ case class UnitLit() extends Expression {
 case class VarName(name: String) extends Expression {
   override def toString: String = name;
 }
-case class PrimOp(op: String, arg1: Expression, arg2: Expression) extends Expression {
-  override def toString: String = "(" + arg1 + " " + op + " " + arg2 + ")";
+case class PrimOp(op: String, args: List[Expression]) extends Expression {
+  override def toString: String = op + "(" + args.mkString(", ") + ")";
 }
 case class LetBinding(varName: String, typ: Type, rhs: Expression, next: Expression) extends Expression {
   override def toString: String = "let " + varName + ": " + typ + " = " + rhs + ";\n" + next;
@@ -28,7 +27,7 @@ case class FunctionCall(function: Expression, args: List[Expression]) extends Ex
 }
 case class LambdaExpression(args: List[(String, Type)], retType: Type, body: Expression) extends Expression {
   override def toString: String = {
-    val argStr = args.map((elem) => elem._1 + ": " + elem._2).mkString(", ");
+    val argStr = args.map(elem => elem._1 + ": " + elem._2).mkString(", ");
     val bodyStr = body.toString;
     if bodyStr.contains("\n") then
       "(" + argStr + "): " + retType + " => {\n" + bodyStr.split("\n").map(elem => " " + elem).mkString("\n") + "\n}"
@@ -50,21 +49,20 @@ case class FunType(args: List[Type], ret: Type) extends Type {
 
 class BlankParser {
 
-  var index: Int = 0;
-  var tokens: List[Token] = List();
-  var uniqueIndex = 0;
-  def uniqInd: Int = {
+  private var index: Int = 0;
+  private var tokens: List[Token] = List();
+  private var uniqueIndex = 0;
+  private def uniqInd: Int = {
     uniqueIndex += 1;
     uniqueIndex
   }
 
-  def parse(src: String): Unit = {
+  def parse(src: String) = {
     val tokenizer = new Tokenizer(0, src);
     val tokens = tokenizer.getStream();
     this.index = 0;
     this.tokens = tokens;
-    val expr = parseProgram();
-    println(expr.toString);
+    parseProgram()
   }
 
   private def parseProgram(): Expression = {
@@ -225,7 +223,7 @@ class BlankParser {
           // TODO: Combine ops together into strings.
           if (precMap.contains("" + char) && precMap("" + char) >= prec) {
             val innerExpr = parseExpr(precMap("" + char) + assocMap("" + char));
-            expr = PrimOp(char.toString, expr, innerExpr);
+            expr = PrimOp(char.toString, List(expr, innerExpr));
           } else
             continue = false;
         case _ => continue = false;
