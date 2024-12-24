@@ -5,8 +5,8 @@ import scala.util.matching.Regex;
 abstract class Token
 case class Id(str: String) extends Token
 case class Keyword(str: String) extends Token
-case class IntLit(str: String) extends Token
-case class FloatLit(str: String) extends Token
+case class TokenIntLit(str: String) extends Token
+case class TokenFloatLit(str: String) extends Token
 case class Op(sym: Char) extends Token
 case class Delim(sym: Char) extends Token
 case class EOF() extends Token
@@ -24,7 +24,10 @@ class Tokenizer(var index: Int, var src: String) {
 
     val keywords = List(
         "let",
-        "fn"
+        "fn",
+        "new",
+        "true",
+        "false"
     )
 
     def getToken(): Token = {
@@ -48,12 +51,12 @@ class Tokenizer(var index: Int, var src: String) {
             case floatLitRegex(str) => {
                 index += str.length;
                 consumeWhitespace();
-                FloatLit(str)
+                TokenFloatLit(str)
             }
             case intLitRegex(str) => {
                 index += str.length;
                 consumeWhitespace();
-                IntLit(str)
+                TokenIntLit(str)
             }
             case delimRegex(str) => {
                 val token = Delim(src.charAt(index));

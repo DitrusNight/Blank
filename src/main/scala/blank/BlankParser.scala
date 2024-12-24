@@ -4,8 +4,11 @@ import scala.util.boundary
 import scala.util.boundary.break
 
 abstract class Expression
-case class Lit(lit: String) extends Expression {
-  override def toString: String = lit;
+case class IntLit(lit: Int) extends Expression {
+  override def toString: String = lit.toString;
+}
+case class FloatLit(lit: Float) extends Expression {
+  override def toString: String = lit.toString;
 }
 case class UnitLit() extends Expression {
   override def toString: String = "()";
@@ -34,17 +37,6 @@ case class LambdaExpression(args: List[(String, Type)], retType: Type, body: Exp
     else
       "(" + argStr + "): " + retType + " => " + bodyStr
   };
-}
-
-abstract class Type
-case class BaseType(name: String) extends Type {
-  override def toString: String = name;
-}
-case class TypeVar(name: String) extends Type {
-  override def toString: String = name;
-}
-case class FunType(args: List[Type], ret: Type) extends Type {
-  override def toString: String = "(" + args.mkString(", ") + ") => " + ret;
 }
 
 class BlankParser {
@@ -125,6 +117,10 @@ class BlankParser {
   private def parseType(): Type = {
     tokens(index) match {
       case Id(str) => BaseType(acceptId())
+      case Delim('{') =>
+        expectDelim('{');
+        expectDelim('}');
+        UnitType()
       case Delim('(') =>
         expectDelim('(')
         var args: List[Type] = List()
@@ -272,6 +268,19 @@ class BlankParser {
 
   private def parseAtom(): Expression = {
     tokens(index) match {
+      case Keyword("new") => {
+        expectKeyword("new");
+        tokens(index) match {
+          case Delim('{') => {
+            // Anonymous structure
+            UnitLit()
+          }
+          case Id(str) => {
+            val id = acceptId();
+            UnitLit()
+          }
+        }
+      }
       case Delim('{') => {
         expectDelim('{');
         tokens(index) match {
@@ -287,9 +296,12 @@ class BlankParser {
       case Delim('(') => {
         parseLambda()
       }
-      case IntLit(value) =>
+      case TokenIntLit(value) =>
         index += 1;
-        Lit(value)
+        IntLit(value.toInt)
+      case TokenFloatLit(value) =>
+        index += 1;
+        FloatLit(value.toFloat)
       case Id(str) =>
         index += 1;
         VarName(str)
@@ -312,6 +324,22 @@ class BlankParser {
       case _ => {
         // TODO Handle errors.
         throw new RuntimeException("Expected identifier but got " + tokens(index));
+      }
+    }
+  }
+
+  private def expectKeyword(str: String): Unit = {
+    tokens(index) match {
+      case Keyword(keyword) => {
+        if (keyword == str)
+          index += 1;
+        else
+          // TODO Handle errors.
+          throw new RuntimeException("Expected keyword '" + str + "' but got " + tokens(index));
+      }
+      case _ => {
+        // TODO Handle errors.
+        throw new RuntimeException("Expected keyword '" + str + "' but got " + tokens(index));
       }
     }
   }
@@ -348,9 +376,9 @@ class BlankParser {
     }
   }
 
-  private def expectInt(): IntLit = {
+  private def expectInt(): TokenIntLit = {
     tokens(index) match {
-      case intlit@IntLit(_) =>
+      case intlit@TokenIntLit(_) =>
         index += 1;
         intlit
       case _ => {
