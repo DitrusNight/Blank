@@ -102,12 +102,7 @@ case class PtrValue() extends PtrProps;
 
 object IR {
 
-  private var uniqueIndex = 0;
-  private def uniqInd: Int = {
-    uniqueIndex += 1;
-    uniqueIndex
-  }
-  private def generateName(prefix: String = "name") = prefix + uniqInd;
+  private def generateName(prefix: String = "name") = prefix + uniqInd();
 
   def identityCont = (res: String) => IRValue(res)
 

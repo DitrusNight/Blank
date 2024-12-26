@@ -1,7 +1,12 @@
-let thing = 5 * {1 + 1};
-let test3: (u8, X, Z): {} = (x: u8, y, z: Z): {} => {
-    x + 5;
-    print(x);
-};
-test3(5);
-thing.x(5);
+fn main() => {
+
+    fn func(x) => {
+        x()
+    };
+    let res = func(() => 5);
+    fn func2(x) => {
+        x
+    };
+    func2(res)
+
+}

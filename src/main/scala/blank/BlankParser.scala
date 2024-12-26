@@ -28,6 +28,13 @@ case class AccessExp(root: Expression, label: String) extends Expression {
 case class FunctionCall(function: Expression, args: List[Expression]) extends Expression {
   override def toString: String = function.toString + "(" + args.mkString(", ") + ")";
 }
+case class ClassExpression(args: List[(String, Type)], body: Expression) extends Expression {
+  override def toString: String = {
+    val argStr = args.map(elem => elem._1 + ": " + elem._2).mkString(", ");
+    val bodyStr = body.toString;
+    "class (" + argStr + ")" + " => {\n" + bodyStr.split("\n").map(elem => " " + elem).mkString("\n") + "\n}"
+  };
+}
 case class LambdaExpression(args: List[(String, Type)], retType: Type, body: Expression) extends Expression {
   override def toString: String = {
     val argStr = args.map(elem => elem._1 + ": " + elem._2).mkString(", ");
@@ -43,11 +50,6 @@ class BlankParser {
 
   private var index: Int = 0;
   private var tokens: List[Token] = List();
-  private var uniqueIndex = 0;
-  private def uniqInd: Int = {
-    uniqueIndex += 1;
-    uniqueIndex
-  }
 
   def parse(src: String) = {
     val tokenizer = new Tokenizer(0, src);
@@ -100,13 +102,27 @@ class BlankParser {
             LetBinding(name, rhsType, rhs, UnitLit())
         }
       }
+      case Keyword("class") => {
+        index += 1;
+        val name = acceptId();
+        val rhs = parseClass();
+        val rhsType = FunType(rhs.args.map((pair) => pair._2), TypeVar("?" + uniqInd()));
+        tokens(index) match {
+          case Delim(';') =>
+            expectDelim(';');
+            val next = parseStatement();
+            LetBinding(name, rhsType, rhs, next)
+          case _ =>
+            LetBinding(name, rhsType, rhs, UnitLit())
+        }
+      }
       case _ => {
         val expr = parseExpr(0);
         tokens(index) match {
           case Delim(';') =>
             expectDelim(';');
             val next = parseStatement();
-            LetBinding("var" + uniqInd, TypeVar("?" + uniqInd), expr, next)
+            LetBinding("var" + uniqInd(), TypeVar("?" + uniqInd()), expr, next)
           case _ =>
             expr
         }
@@ -153,7 +169,7 @@ class BlankParser {
         parseType()
       }
       case _ => {
-        TypeVar("?" + uniqInd)
+        TypeVar("?" + uniqInd())
       }
     }
   }
@@ -189,6 +205,32 @@ class BlankParser {
     expectOp('>');
     val body = parseExpr(0);
     LambdaExpression(args, retTyp, body)
+  }
+
+  private def parseClass(): ClassExpression = {
+    expectDelim('(');
+    var args: List[(String, Type)] = List()
+    tokens(index) match {
+      case Delim(')') => expectDelim(')');
+      case Id(str) =>
+        val (name, typ) = parseArg()
+        args = args ++ List((name, typ))
+        while(tokens(index) match {
+          case Delim(',') => true
+          case Delim(')') => false
+          case _ => throw new RuntimeException("Unexpected delimiter token in args. " + tokens(index))
+        }) {
+          index += 1;
+          val (name, typ) = parseArg()
+          args = args ++ List((name, typ))
+        }
+        expectDelim(')');
+      case _ => {
+        throw new RuntimeException("Expected function argument list but received " + tokens(index))
+      }
+    }
+    val body = parseExpr(0);
+    ClassExpression(args, body)
   }
 
   private val precMap = Map(

@@ -12,10 +12,11 @@ object Main {
     val ast = new BlankParser().parse(src);
     val typeAnalyzer = new Types();
     typeAnalyzer.populateArithmeticTypes();
-    typeAnalyzer.inferType(Map(), ast);
     println(ast.toString);
-    println(typeAnalyzer.constraints);
-    val ir = IR.convertASTToIR(ast, IR.identityCont);
+    typeAnalyzer.inferType(Map(), ast);
+    val newAST = typeAnalyzer.convertTypes(Map(), ast, (exp) => exp);
+    println(newAST.toString);
+    val ir = IR.convertASTToIR(newAST, IR.identityCont);
     println(ir.toString);
   }
 
