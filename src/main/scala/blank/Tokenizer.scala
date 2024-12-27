@@ -24,18 +24,19 @@ class Tokenizer(var index: Int, var src: String) {
 
     val keywords = List(
         "let",
+        "var",
         "fn",
-        "new",
+        "class",
         "true",
-        "false"
+        "false",
     )
 
     def getToken(): Token = {
-        val idRegex: Regex = "^([a-zA-Z_$][0-9a-zA-Z_$]*)(?:.|\n)*".r;
-        val floatLitRegex: Regex = "^([0-9]+\\.[0-9]+)(?:.|\n)*".r;
-        val intLitRegex: Regex = "^([0-9]+)(?:.|\n)*".r;
-        val delimRegex: Regex = "^([{};,():.])(?:.|\n)*".r;
-        val opRegex: Regex = "^([\\-+*/=>])(?:.|\n)*".r;
+        val idRegex: Regex = "^([a-zA-Z_$][0-9a-zA-Z_$]*)(?:.|\n|\r)*".r;
+        val floatLitRegex: Regex = "^([0-9]+\\.[0-9]+)(?:.|\n|\r)*".r;
+        val intLitRegex: Regex = "^([0-9]+)(?:.|\n|\r)*".r;
+        val delimRegex: Regex = "^([{};,():.])(?:.|\n|\r)*".r;
+        val opRegex: Regex = "^([\\-+*/=>])(?:.|\n|\r)*".r;
         val substr = src.substring(index);
 
         substr match {
@@ -73,7 +74,7 @@ class Tokenizer(var index: Int, var src: String) {
             case _ => {
                 // TODO Handle Errors
                 throw new RuntimeException("Unknown character encountered: " + substr.charAt(0));
-        };
+            }
         }
     }
 

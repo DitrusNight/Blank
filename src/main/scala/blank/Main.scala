@@ -1,5 +1,6 @@
 package blank
 
+import java.io.{File, FileWriter}
 import scala.io.Source
 
 object Main {
@@ -13,11 +14,17 @@ object Main {
     val typeAnalyzer = new Types();
     typeAnalyzer.populateArithmeticTypes();
     println(ast.toString);
-    typeAnalyzer.inferType(Map(), ast);
+    println(typeAnalyzer.inferType(Map(), ast));
     val newAST = typeAnalyzer.convertTypes(Map(), ast, (exp) => exp);
     println(newAST.toString);
-    val ir = IR.convertASTToIR(newAST, IR.identityCont);
+    val ir = IR.convertASTToIR(IR.generateName(), newAST, IR.identityCont);
     println(ir.toString);
+    LLVM.convertTopLevelLLVM(ir, Map());
+    println(LLVM.context.mkString("\n"));
+    val outFile = new File("./out/out.ll");
+    val writer = new FileWriter(outFile);
+    writer.write(LLVM.context.mkString("\n"));
+    writer.close();
   }
 
 }

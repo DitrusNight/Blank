@@ -22,6 +22,9 @@ case class PrimOp(op: String, args: List[Expression]) extends Expression {
 case class LetBinding(varName: String, typ: Type, rhs: Expression, next: Expression) extends Expression {
   override def toString: String = "let " + varName + ": " + typ + " = " + rhs + ";\n" + next;
 }
+case class VarBinding(varName: String, typ: Type, rhs: Expression, next: Expression) extends Expression {
+  override def toString: String = "var " + varName + ": " + typ + " = " + rhs + ";\n" + next;
+}
 case class AccessExp(root: Expression, label: String) extends Expression {
   override def toString: String = root.toString + "." + label;
 }

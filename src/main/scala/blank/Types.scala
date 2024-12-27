@@ -16,7 +16,7 @@ case class VarClassType(name: String, props: Map[String, Type]) extends Type {
   override def toString: String = "{\n" + props.mkString(", \n") + "\n}";
 }
 case class ClassType(fields: Map[String, Type], vmt: Map[String, FunType], methods: Map[String, FunType]) extends Type {
-  override def toString: String = "{\n  _vmt: {\n" + vmt.mkString(", \n") + "},\n" + fields.mkString(", \n") + "\n}\n" + methods.mkString(", \n");
+  override def toString: String = "{\n  _vmt: {" + vmt.mkString(", \n") + "}, " + fields.mkString(", \n") + "}\nMethods: " + methods.mkString(", \n");
 }
 case class FunType(args: List[Type], ret: Type) extends Type {
   override def toString: String = "(" + args.mkString(", ") + ") => " + ret;
@@ -97,6 +97,10 @@ class Types {
           vmt.map(pair => pair._1 -> followConstraintsFun(pair._2, path)),
           methods.map(pair => pair._1 -> followConstraintsFun(pair._2, path))
         )
+      case VarClassType(label, props) =>
+        VarClassType(label,
+          props.map(pair => pair._1 -> followConstraints(pair._2, path))
+        )
       case FunType(args, ret) => {
         followConstraintsFun(FunType(args, ret), path)
       }
@@ -111,7 +115,8 @@ class Types {
     val newExpType = followConstraints(expTyp);
     (newInfType, newExpType) match {
       case (TypeVar(x), TypeVar(y)) => {
-        constraints = constraints + (x -> (newExpType));
+        if(x != y)
+          constraints = constraints + (x -> (newExpType));
         newExpType
       }
       case (TypeVar(x), _) => {
@@ -258,6 +263,41 @@ class Types {
         val argTypes = args.map((pair) => pair._2);
         FunType(argTypes, bodyType)
       }
+      case ClassExpression(args: List[(String, Type)], body: Expression) => {
+        var runningBindings = bindings ++ args.map((pair) => pair._1 -> pair._2);
+        val inferredType = inferType(runningBindings, body);
+        val argTypes = args.map((pair) => pair._2);
+        var fields: Map[String, Type] = Map()
+        var vmt: Map[String, FunType] = Map()
+        var methods: Map[String, FunType] = Map()
+        var exp: Option[Expression] = Some(body);
+        while(exp.isDefined) {
+          exp match {
+            case Some(LetBinding(varName, typ, rhs@LambdaExpression(args, retType, body), next)) => {
+              val typ = inferType(runningBindings, rhs);
+              typ match {
+                case funType@FunType(_, _) => methods = methods + (varName -> funType);
+              }
+              runningBindings = runningBindings + (varName -> typ);
+              exp = Some(next);
+            }
+            case Some(LetBinding(varName, typ, rhs, next)) => {
+              val typ = inferType(runningBindings, rhs);
+              fields = fields + (varName -> typ);
+              runningBindings = runningBindings + (varName -> typ);
+              exp = Some(next);
+            }
+            case Some(VarBinding(varName, typ, rhs, next)) => {
+              val typ = inferType(runningBindings, rhs);
+              fields = fields + (varName -> typ);
+              runningBindings = runningBindings + (varName -> typ)
+              exp = Some(next);
+            }
+            case _ => exp = None;
+          }
+        }
+        FunType(argTypes, ClassType(fields, vmt, methods))
+      }
     }
   }
 
@@ -320,6 +360,11 @@ class Types {
       case LambdaExpression(args: List[(String, Type)], retType: Type, body: Expression) => {
         convertTypes(bindings ++ args, body, (newBody) => {
           cont(LambdaExpression(args.map((pair) => pair._1 -> followConstraints(pair._2)), followConstraints(retType), newBody))
+        });
+      }
+      case ClassExpression(args: List[(String, Type)], body: Expression) => {
+        convertTypes(bindings ++ args, body, (newBody) => {
+          cont(ClassExpression(args.map((pair) => pair._1 -> followConstraints(pair._2)), newBody))
         });
       }
     }

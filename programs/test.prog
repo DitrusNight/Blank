@@ -1,12 +1,5 @@
 fn main() => {
-
-    fn func(x) => {
-        x()
-    };
-    let res = func(() => 5);
-    fn func2(x) => {
-        x
-    };
-    func2(res)
-
+    let x = 1 + 1;
+    let y = x * 10;
+    y + 1
 }

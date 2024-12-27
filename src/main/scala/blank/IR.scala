@@ -92,7 +92,7 @@ case class IRStruct(map: Map[String, IRType]) extends IRType {
 }
 // TODO: Make typing system.
 case class IRUnk() extends IRType {
-  override def toString: String = "unknown";
+  override def toString: String = "i32";
 }
 
 abstract class PtrProps;
@@ -102,7 +102,7 @@ case class PtrValue() extends PtrProps;
 
 object IR {
 
-  private def generateName(prefix: String = "name") = prefix + uniqInd();
+  def generateName(prefix: String = "name") = prefix + uniqInd();
 
   def identityCont = (res: String) => IRValue(res)
 
@@ -111,7 +111,7 @@ object IR {
     for (arg <- list.reverse) {
       val prevCont = newCont;
       newCont = (elemNames: List[String]) => {
-        convertASTToIR(arg, (elemName) => {
+        convertASTToIR(generateName(), arg, (elemName) => {
           prevCont(elemName :: elemNames)
         })
       }
@@ -119,18 +119,15 @@ object IR {
     newCont(List())
   }
 
-  def convertASTToIR(exp: Expression, cont: (String) => IRExp): IRExp = {
+  def convertASTToIR(name: String, exp: Expression, cont: (String) => IRExp): IRExp = {
     exp match {
       case IntLit(lit) => {
-        val name = generateName();
-        IRLet(name, IRI64(), RhsIntLit(lit), cont(name))
+        IRLet(name, IRI32(), RhsIntLit(lit), cont(name))
       }
       case FloatLit(lit) => {
-        val name = generateName();
         IRLet(name, IRF64(), RhsFloatLit(lit), cont(name))
       }
       case UnitLit() => {
-        val name = generateName();
         IRLet(name, IRUnit(), RhsUnitLit(), cont(name))
       }
       case VarName(name) => {
@@ -138,23 +135,21 @@ object IR {
       }
       case PrimOp(op, args) => {
         convertList(args, (argNames) => {
-          val resName = generateName();
-          IRLet(resName, IRUnk(), RhsPrim(op, argNames), cont(resName))
+          IRLet(name, IRUnk(), RhsPrim(op, argNames), cont(name))
         })
       }
       case LetBinding(varName, typ, rhs, next) => {
-        convertASTToIR(rhs, (resName: String) => {
-          IRLet(varName, IRUnk(), RhsPrim("id", List(resName)), convertASTToIR(next, identityCont));
+        convertASTToIR(varName, rhs, (resName: String) => {
+          convertASTToIR(generateName(), next, identityCont);
         })
       }
       case AccessExp(root, label) => {
-        val name = generateName();
-        convertASTToIR(root, (rootName: String) => {
+        convertASTToIR(generateName(), root, (rootName: String) => {
           IRLet(name, IRUnk(), RhsAccess(rootName, label), cont(name))
         });
       }
       case FunctionCall(function, args) => {
-        convertASTToIR(function, (funName) => {
+        convertASTToIR(generateName(), function, (funName) => {
           convertList(args, (argsNames) => {
             val contName = generateName("cont");
             val ret = generateName("ret");
@@ -165,11 +160,22 @@ object IR {
         })
       }
       case LambdaExpression(args, retType, body) => {
+        val contName = generateName("cont");
+        IRLet(name, IRUnk(), RhsDefF(contName, args.map(elem => elem._1),
+          convertASTToIR(generateName(), body, (resName: String) =>
+          IRCallC(contName, List(resName))
+        )), cont(name));
+      }
+      case ClassExpression(args, body) => {
+        /*
         val lambda = generateName("lambda");
         val contName = generateName("cont");
         IRLet(lambda, IRUnk(), RhsDefF(contName, args.map(elem => elem._1), convertASTToIR(body, (resName: String) =>
           IRCallC(contName, List(resName))
         )), cont(lambda));
+        */
+        val resName = generateName("cont");
+        IRLet(resName, IRUnit(), RhsUnitLit(), cont(resName));
       }
     }
   }
