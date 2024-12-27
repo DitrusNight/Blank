@@ -17,7 +17,7 @@ object Main {
     println(typeAnalyzer.inferType(Map(), ast));
     val newAST = typeAnalyzer.convertTypes(Map(), ast, (exp) => exp);
     println(newAST.toString);
-    val ir = IR.convertASTToIR(IR.generateName(), newAST, IR.identityCont);
+    val ir = IR.convertASTToIR(IR.generateName(), newAST, (varName) => IREOF());
     println(ir.toString);
     LLVM.convertTopLevelLLVM(ir, Map());
     println(LLVM.context.mkString("\n"));

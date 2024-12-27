@@ -40,7 +40,9 @@ class Types {
     (BaseType("u16"), BaseType("f32")),
     (BaseType("u32"), BaseType("f64")),
     (BaseType("i16"), BaseType("f32")),
-    (BaseType("i32"), BaseType("f64"))
+    (BaseType("i32"), BaseType("f64")),
+
+    (BaseType("u8"), BaseType("i32")),
   )
 
   private var arithmeticMap: Map[(Type, Type), Type] = Map();
@@ -178,7 +180,6 @@ class Types {
         expTyp
       }
       case (_, _) => {
-
         if(!getSubtypes(Set(newExpType)).contains(newInfType))
             throw new RuntimeException("Types do not align. " + newExpType + " !<: " + newInfType)
         newInfType
@@ -192,7 +193,7 @@ class Types {
         if(lit < 0)
           BaseType("i64");
         else if(lit < 255)
-          BaseType("u8");
+          BaseType("i32");
         else if(lit < 65535)
           BaseType("u16");
         else
@@ -213,10 +214,20 @@ class Types {
           case "id" => argTypes(0)
           case "-" | "+" | "*" | "/" => {
             // TODO: Include type vars.
-            arithmeticMap.get((argTypes(0), argTypes(1))) match {
-              case Some(resType: Type) => resType
-              case _ =>
-                throw new RuntimeException("Unable to conform arithmetic arguments to numbers.")
+            (argTypes(0), argTypes(1)) match {
+              case (TypeVar(x), _) => {
+                unionType(argTypes(0), argTypes(1))
+              }
+              case (_, TypeVar(y)) => {
+                unionType(argTypes(0), argTypes(1))
+              }
+              case (_, _) => {
+                arithmeticMap.get((argTypes(0), argTypes(1))) match {
+                  case Some(resType: Type) => resType
+                  case _ =>
+                    throw new RuntimeException("Unable to conform arithmetic arguments to numbers.")
+                }
+              }
             }
           }
           case _ => throw new RuntimeException("Unknown primitive " + op)
@@ -253,8 +264,9 @@ class Types {
         val argTypes = args.map(exp => unionType(inferType(bindings, exp), TypeVar("?" + uniqInd())))
         val retType = TypeVar("?" + uniqInd());
         val funType = inferType(bindings, function)
-        unionType(funType, FunType(argTypes, retType))
-        retType
+        unionType(funType, FunType(argTypes, retType)) match {
+          case FunType(args, res) => res
+        }
       }
       case LambdaExpression(args: List[(String, Type)], retType: Type, body: Expression) => {
         val bodyBindings = bindings ++ args.map((pair) => pair._1 -> pair._2);

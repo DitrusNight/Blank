@@ -158,7 +158,8 @@ class BlankParser {
             expectDelim(')')
           }
         }
-        expectDelim(':');
+        expectOp('=');
+        expectOp('>');
         val resType = parseType();
         FunType(args, resType)
       case _ => throw new RuntimeException("Unknown token encountered when parsing type " + tokens(index))

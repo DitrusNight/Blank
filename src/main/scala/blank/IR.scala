@@ -7,11 +7,11 @@ case class IRLet(varName: String, typ: IRType, rhs: IRRHS, next: IRExp) extends 
 case class IRCallF(func: String, cont: String, args: List[String]) extends IRExp {
   override def toString: String = func + "[" + cont + "](" + args.mkString(", ") + ")";
 }
-case class IRCallC(cont: String, args: List[String]) extends IRExp {
-  override def toString: String = cont + "(" + args.mkString(", ") + ")";
+case class IRCallC(cont: String, arg: String) extends IRExp {
+  override def toString: String = cont + "(" + arg + ")";
 }
-case class IRValue(varName: String) extends IRExp {
-  override def toString: String = varName;
+case class IREOF() extends IRExp {
+  override def toString: String = "";
 }
 case class IRIf(cond: String, contTrue: String, contFalse: String) extends IRExp {
   override def toString: String = "if(" + cond + ") {\n  " + contTrue + "();\n} else {\n  " + contFalse + "();\n}";
@@ -37,7 +37,7 @@ case class RhsPrim(op: String, args: List[String]) extends IRRHS {
 case class RhsAccess(root: String, label: String) extends IRRHS {
   override def toString: String = root + "." + label;
 }
-case class RhsDefF(cont: String, args: List[String], body: IRExp) extends IRRHS {
+case class RhsDefF(cont: String, args: List[(String, IRType)], body: IRExp) extends IRRHS {
   override def toString: String = "[" + cont +"](" + args.mkString(", ") + ") => {\n" + body.toString.split("\n").map(elem => "  " + elem).mkString("\n") + "\n}";
 }
 case class RhsDefC(args: List[String], body: IRExp) extends IRRHS {
@@ -78,18 +78,21 @@ case class IRF32() extends IRType{
 case class IRF64() extends IRType{
   override def toString: String = "f64";
 }
+case class IRPtr() extends IRType {
+  override def toString: String = "ptr";
+}
 case class IRBoolean() extends IRType{
   override def toString: String = "boolean";
 }
 case class IRUnit() extends IRType{
   override def toString: String = "{}";
 }
-case class IRPtr(typ: IRType, props: PtrProps) extends IRType {
+/*case class IRPtr(typ: IRType, props: PtrProps) extends IRType {
   override def toString: String = "*[" + props + "]" + typ;
 }
 case class IRStruct(map: Map[String, IRType]) extends IRType {
   override def toString: String = "{\n" + map.keySet.toList.map((elem) => "  " + elem + ": " + map(elem)).mkString(",\n") + "}";
-}
+}*/
 // TODO: Make typing system.
 case class IRUnk() extends IRType {
   override def toString: String = "i32";
@@ -104,8 +107,6 @@ object IR {
 
   def generateName(prefix: String = "name") = prefix + uniqInd();
 
-  def identityCont = (res: String) => IRValue(res)
-
   private def convertList(list: List[Expression], cont: (List[String]) => IRExp): IRExp = {
     var newCont = cont;
     for (arg <- list.reverse) {
@@ -117,6 +118,13 @@ object IR {
       }
     }
     newCont(List())
+  }
+
+  private def convertType(typ: Type): IRType = {
+    typ match {
+      case BaseType(name) => IRI32()
+      case FunType(args, ret) => IRPtr()
+    }
   }
 
   def convertASTToIR(name: String, exp: Expression, cont: (String) => IRExp): IRExp = {
@@ -140,7 +148,7 @@ object IR {
       }
       case LetBinding(varName, typ, rhs, next) => {
         convertASTToIR(varName, rhs, (resName: String) => {
-          convertASTToIR(generateName(), next, identityCont);
+          convertASTToIR(generateName(), next, cont);
         })
       }
       case AccessExp(root, label) => {
@@ -153,7 +161,9 @@ object IR {
           convertList(args, (argsNames) => {
             val contName = generateName("cont");
             val ret = generateName("ret");
-            IRLet(contName, IRUnk(), RhsDefC(List(ret), cont(ret)),
+            IRLet(contName, IRUnk(), RhsDefC(List(ret), {
+              IRLet(name, IRUnk(), RhsPrim("id", List(ret)), cont(name))
+            }),
               IRCallF(funName, contName, argsNames)
             )
           })
@@ -161,9 +171,9 @@ object IR {
       }
       case LambdaExpression(args, retType, body) => {
         val contName = generateName("cont");
-        IRLet(name, IRUnk(), RhsDefF(contName, args.map(elem => elem._1),
+        IRLet(name, IRUnk(), RhsDefF(contName, args.map(elem => (elem._1, convertType(elem._2))),
           convertASTToIR(generateName(), body, (resName: String) =>
-          IRCallC(contName, List(resName))
+          IRCallC(contName, resName)
         )), cont(name));
       }
       case ClassExpression(args, body) => {
