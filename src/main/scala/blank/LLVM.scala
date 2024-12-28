@@ -42,7 +42,8 @@ object LLVM {
         if(retCont == cont) {
           addLine("  ret " + bindings(varName)._1 + " " + bindings(varName)._2);
         } else {
-          addLine("  store " + bindings(varName)._1 + " " + bindings(varName)._2 + ", ptr " + bindings(cont)._2);
+          addLine("  store " + bindings(varName)._1 + " " + bindings(varName)._2 + ", ptr " + bindings(cont)._2 + "r");
+          addLine("  br label " + bindings(cont)._2);
         }
         bindings
       }
@@ -51,6 +52,10 @@ object LLVM {
         addLine("  %" + retVal + " = call " + bindings(cont)._1 + " " + bindings(function)._2 + "(" + args.map((elem) => "" + bindings(elem)._1 + " " + bindings(elem)._2).mkString(", ") + ")");
         addLine("  store " + bindings(cont)._1 + " %" + retVal + ", ptr " + bindings(cont)._2 + "r");
         addLine("  br label " + bindings(cont)._2);
+        bindings
+      }
+      case IRIf(cond, contTrue, contFalse) => {
+        addLine("  br " + bindings(cond)._1 + " " + bindings(cond)._2 + ", label " + bindings(contTrue)._2 + ", label " + bindings(contFalse)._2);
         bindings
       }
     }
@@ -86,6 +91,12 @@ object LLVM {
           case "/" =>
             addLine("  %" + varName + " = div " + typ + " " + args.map((elem) => bindings(elem)._2).mkString(", "));
             bindings + (varName -> (typ, "%" + varName))
+          case ">" =>
+            addLine("  %" + varName + " = icmp sgt " + bindings(args.head)._1 + " " + args.map((elem) => bindings(elem)._2).mkString(", "));
+            bindings + (varName -> (IRBoolean(), "%" + varName))
+          case "<" =>
+            addLine("  %" + varName + " = icmp slt " + bindings(args.head)._1 + " " + args.map((elem) => bindings(elem)._2).mkString(", "));
+            bindings + (varName -> (IRBoolean(), "%" + varName))
           case "=" =>
             addLine("  store " + typ + " " + bindings(args(1))._2 + ", ptr %" + args.head)
             val name = generateName("var" + varName);
@@ -111,11 +122,17 @@ object LLVM {
       }
       case RhsDefC(args, contBody) => {
         val next = generateName("next");
-        addLine("  %" + varName + "r = alloca " + typ);
-        addLine("  br label %" + next);
-        addLine(varName + ":");
-        addLine("  %" + args.head + " = load " + typ + ", ptr %" + varName + "r");
-        val bodyBindings = bindings + (args.head -> (typ, "%" + args.head));
+        val bodyBindings = if(args.nonEmpty) {
+          addLine("  %" + varName + "r = alloca " + typ);
+          addLine("  br label %" + next);
+          addLine(varName + ":");
+          addLine("  %" + args.head + " = load " + typ + ", ptr %" + varName + "r");
+          bindings + (args.head -> (typ, "%" + args.head));
+        } else {
+          addLine("  br label %" + next);
+          addLine(varName + ":");
+          bindings
+        }
         convertIRToLLVM(contBody, bodyBindings, retCont);
         addLine(next + ":");
         bindings + (varName -> (typ, "%" + varName))

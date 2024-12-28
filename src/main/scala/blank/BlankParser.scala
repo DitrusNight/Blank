@@ -19,6 +19,9 @@ case class VarName(name: String) extends Expression {
 case class PrimOp(op: String, args: List[Expression]) extends Expression {
   override def toString: String = op + "(" + args.mkString(", ") + ")";
 }
+case class IfStatement(cond: Expression, thenBr: Expression, elseBr: Expression) extends Expression {
+  override def toString: String = "if(" + cond + ") {\n" + thenBr + "\n} else {\n" + elseBr + "}\n";
+}
 case class LetBinding(varName: String, typ: Type, rhs: Expression, next: Expression) extends Expression {
   override def toString: String = "let " + varName + ": " + typ + " = " + rhs + ";\n" + next;
 }
@@ -80,7 +83,7 @@ class BlankParser {
         val name = acceptId();
         val typ = attemptParseType();
         expectOp('=');
-        val rhs = parseExpr(0);
+        val rhs = parseExpr();
 
         tokens(index) match {
           case Delim(';') =>
@@ -120,7 +123,7 @@ class BlankParser {
         }
       }
       case _ => {
-        val expr = parseExpr(0);
+        val expr = parseExpr();
         tokens(index) match {
           case Delim(';') =>
             expectDelim(';');
@@ -207,7 +210,7 @@ class BlankParser {
     val retTyp = attemptParseType();
     expectOp('=');
     expectOp('>');
-    val body = parseExpr(0);
+    val body = parseExpr();
     LambdaExpression(args, retTyp, body)
   }
 
@@ -233,16 +236,18 @@ class BlankParser {
         throw new RuntimeException("Expected function argument list but received " + tokens(index))
       }
     }
-    val body = parseExpr(0);
+    val body = parseExpr();
     ClassExpression(args, body)
   }
 
   private val precMap = Map(
     "=" -> 0,
-    "+" -> 1,
-    "-" -> 1,
-    "*" -> 2,
-    "/" -> 2,
+    ">" -> 1,
+    "<" -> 1,
+    "+" -> 2,
+    "-" -> 2,
+    "*" -> 3,
+    "/" -> 3,
   );
   private val assocMap = Map(
     "=" -> 0,
@@ -250,9 +255,15 @@ class BlankParser {
     "-" -> 1,
     "*" -> 1,
     "/" -> 1,
+    ">" -> 1,
+    "<" -> 1,
   );
   // 0 -> (1 + (1 + 1))
   // 1 -> ((1 + 1) + 1)
+
+  private def parseExpr(): Expression = {
+    parseExpr(0)
+  }
 
   private def parseExpr(prec: Int): Expression = {
     var expr = parseCluster();
@@ -286,7 +297,7 @@ class BlankParser {
             tokens(index) match {
               case Delim(')') => expectDelim(')');
               case _ =>
-                val expr = parseExpr(0)
+                val expr = parseExpr()
                 args = args ++ List(expr)
                 while (tokens(index) match {
                   case Delim(',') => true
@@ -294,7 +305,7 @@ class BlankParser {
                   case _ => throw new RuntimeException("Unexpected delimiter token in args. " + tokens(index))
                 }) {
                   index += 1;
-                  val expr = parseExpr(0)
+                  val expr = parseExpr()
                   args = args ++ List(expr)
                 }
                 expectDelim(')');
@@ -326,6 +337,24 @@ class BlankParser {
             UnitLit()
           }
         }
+      }
+      case Keyword("if") => {
+        expectKeyword("if");
+        expectDelim('(');
+        val cond = parseExpr();
+        expectDelim(')');
+        val thenBr = parseExpr();
+
+        val elseBr = tokens(index) match {
+          case Keyword("else") => {
+            expectKeyword("else")
+            parseExpr()
+          }
+          case _ => {
+            UnitLit()
+          }
+        }
+        IfStatement(cond, thenBr, elseBr)
       }
       case Delim('{') => {
         expectDelim('{');

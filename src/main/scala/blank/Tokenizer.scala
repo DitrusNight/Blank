@@ -29,6 +29,8 @@ class Tokenizer(var index: Int, var src: String) {
         "class",
         "true",
         "false",
+        "if",
+        "else",
     )
 
     def getToken(): Token = {
@@ -36,7 +38,7 @@ class Tokenizer(var index: Int, var src: String) {
         val floatLitRegex: Regex = "^([0-9]+\\.[0-9]+)(?:.|\n|\r)*".r;
         val intLitRegex: Regex = "^([0-9]+)(?:.|\n|\r)*".r;
         val delimRegex: Regex = "^([{};,():.])(?:.|\n|\r)*".r;
-        val opRegex: Regex = "^([\\-+*/=>])(?:.|\n|\r)*".r;
+        val opRegex: Regex = "^([\\-+*/=><])(?:.|\n|\r)*".r;
         val substr = src.substring(index);
 
         substr match {

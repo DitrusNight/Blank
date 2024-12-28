@@ -82,7 +82,7 @@ case class IRPtr() extends IRType {
   override def toString: String = "ptr";
 }
 case class IRBoolean() extends IRType{
-  override def toString: String = "boolean";
+  override def toString: String = "i1";
 }
 case class IRUnit() extends IRType{
   override def toString: String = "{}";
@@ -122,7 +122,12 @@ object IR {
 
   private def convertType(typ: Type): IRType = {
     typ match {
-      case BaseType(name) => IRI32()
+      case BaseType(name) => {
+        if(name == "boolean")
+          IRBoolean()
+        else
+          IRI32()
+      }
       case FunType(args, ret) => IRPtr()
     }
   }
@@ -149,6 +154,21 @@ object IR {
       case LetBinding(varName, typ, rhs, next) => {
         convertASTToIR(varName, rhs, (resName: String) => {
           convertASTToIR(generateName(), next, cont);
+        })
+      }
+      case IfStatement(cond, thenBr, elseBr) => {
+        convertASTToIR(generateName("cond"), cond, (condName: String) => {
+          val res = generateName("res");
+          val finallyCont = generateName("finCont");
+          val thenCont = generateName("thenCont");
+          val elseCont = generateName("elseCont");
+          IRLet(finallyCont, IRUnk(), RhsDefC(List(res), IRLet(name, IRUnk(), RhsPrim("id", List(res)), cont(res))),
+            IRLet(thenCont, IRUnk(), RhsDefC(List(), convertASTToIR(generateName(), thenBr, (res) => IRCallC(finallyCont, res))),
+              IRLet(elseCont, IRUnk(), RhsDefC(List(), convertASTToIR(generateName(), elseBr, (res) => IRCallC(finallyCont, res))),
+                IRIf(condName, thenCont, elseCont)
+              )
+            )
+          )
         })
       }
       case AccessExp(root, label) => {

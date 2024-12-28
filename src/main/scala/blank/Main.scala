@@ -2,6 +2,7 @@ package blank
 
 import java.io.{File, FileWriter}
 import scala.io.Source
+import scala.sys.process._
 
 object Main {
 
@@ -25,6 +26,7 @@ object Main {
     val writer = new FileWriter(outFile);
     writer.write(LLVM.context.mkString("\n"));
     writer.close();
+    "clang -O2 -o out/out out/out.ll".!!;
   }
 
 }

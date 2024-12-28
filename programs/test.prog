@@ -10,5 +10,6 @@ fn main() => {
     let x = 1 + 1;
     let y = x * 10;
     let res = passer(item, y + 1);
-    res
+    let thing = if(x > 1) 1 else 2;
+    res + thing
 };

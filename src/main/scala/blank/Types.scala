@@ -216,7 +216,7 @@ class Types {
             // TODO: Include type vars.
             (argTypes(0), argTypes(1)) match {
               case (TypeVar(x), _) => {
-                unionType(argTypes(0), argTypes(1))
+                unionType(argTypes(0), argTypes(1));
               }
               case (_, TypeVar(y)) => {
                 unionType(argTypes(0), argTypes(1))
@@ -230,6 +230,26 @@ class Types {
               }
             }
           }
+          case ">" | "<" => {
+            // TODO: Include type vars.
+            (argTypes(0), argTypes(1)) match {
+              case (TypeVar(x), _) => {
+                unionType(argTypes(0), argTypes(1))
+                BaseType("boolean")
+              }
+              case (_, TypeVar(y)) => {
+                unionType(argTypes(0), argTypes(1))
+                BaseType("boolean")
+              }
+              case (_, _) => {
+                arithmeticMap.get((argTypes(0), argTypes(1))) match {
+                  case Some(resType: Type) => BaseType("boolean")
+                  case _ =>
+                    throw new RuntimeException("Unable to conform arithmetic arguments to numbers.")
+                }
+              }
+            }
+          }
           case _ => throw new RuntimeException("Unknown primitive " + op)
         }
       }
@@ -237,6 +257,10 @@ class Types {
         val inferredType = inferType(bindings, rhs);
         val resType = unionType(inferredType, typ);
         inferType(bindings + (varName -> resType), next)
+      }
+      case IfStatement(cond: Expression, thenBr: Expression, elseBr: Expression) => {
+        unionType(inferType(bindings, cond), BaseType("boolean"))
+        unionType(inferType(bindings, thenBr), inferType(bindings, elseBr))
       }
       case AccessExp(root: Expression, label: String) => {
         inferType(bindings, root) match {
@@ -341,6 +365,15 @@ class Types {
         convertTypes(bindings, rhs, (newRhs) => {
           convertTypes(bindings + (varName -> newType), next, (newNext) => {
             cont(LetBinding(varName, newType, newRhs, newNext))
+          })
+        })
+      }
+      case IfStatement(cond: Expression, thenBr: Expression, elseBr: Expression) => {
+        convertTypes(bindings, cond, (newCond) => {
+          convertTypes(bindings, thenBr, (newThenBr) => {
+            convertTypes(bindings, elseBr, (newElseBr) => {
+              cont(IfStatement(newCond, newThenBr, newElseBr))
+            })
           })
         })
       }
