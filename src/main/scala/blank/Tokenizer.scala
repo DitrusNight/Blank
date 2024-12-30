@@ -2,18 +2,22 @@ package blank
 
 import scala.util.matching.Regex;
 
-abstract class Token
-case class Id(str: String) extends Token
-case class Keyword(str: String) extends Token
-case class TokenIntLit(str: String) extends Token
-case class TokenFloatLit(str: String) extends Token
-case class Op(sym: Char) extends Token
-case class Delim(sym: Char) extends Token
-case class EOF() extends Token
+case class TokenData(startIndex: Int, endIndex: Int)
+
+abstract class Token(data: TokenData) {
+    def getData: TokenData = data;
+}
+case class Id(data: TokenData, str: String) extends Token(data)
+case class Keyword(data: TokenData, str: String) extends Token(data)
+case class TokenIntLit(data: TokenData, str: String) extends Token(data)
+case class TokenFloatLit(data: TokenData, str: String) extends Token(data)
+case class Op(data: TokenData, str: String) extends Token(data)
+case class Delim(data: TokenData, str: String) extends Token(data)
+case class EOF(data: TokenData) extends Token(data)
 
 class Tokenizer(var index: Int, var src: String) {
 
-    def consumeWhitespace() = {
+    private def consumeWhitespace() = {
         while(index < src.length && (
         if index < src.length then src.charAt(index) == ' ' || src.charAt(index) == '\t' || src.charAt(index) == '\n'
         else false
@@ -22,7 +26,7 @@ class Tokenizer(var index: Int, var src: String) {
         }
     }
 
-    val keywords = List(
+    private val keywords = List(
         "let",
         "var",
         "fn",
@@ -33,43 +37,43 @@ class Tokenizer(var index: Int, var src: String) {
         "else",
     )
 
-    def getToken(): Token = {
+    private def getToken: Token = {
         val idRegex: Regex = "^([a-zA-Z_$][0-9a-zA-Z_$]*)(?:.|\n|\r)*".r;
         val floatLitRegex: Regex = "^([0-9]+\\.[0-9]+)(?:.|\n|\r)*".r;
         val intLitRegex: Regex = "^([0-9]+)(?:.|\n|\r)*".r;
         val delimRegex: Regex = "^([{};,():.])(?:.|\n|\r)*".r;
         val opRegex: Regex = "^([\\-+*/=><])(?:.|\n|\r)*".r;
         val substr = src.substring(index);
-
+        val oldIndex = index;
         substr match {
             case idRegex(str) => {
                 index += str.length;
                 consumeWhitespace();
                 if(keywords.contains(str)) {
-                    Keyword(str)
+                    Keyword(TokenData(oldIndex, oldIndex + str.length), str)
                 } else {
-                    Id(str)
+                    Id(TokenData(oldIndex, oldIndex + str.length), str)
                 }
             }
             case floatLitRegex(str) => {
                 index += str.length;
                 consumeWhitespace();
-                TokenFloatLit(str)
+                TokenFloatLit(TokenData(oldIndex, oldIndex + str.length), str)
             }
             case intLitRegex(str) => {
                 index += str.length;
                 consumeWhitespace();
-                TokenIntLit(str)
+                TokenIntLit(TokenData(oldIndex, oldIndex + str.length), str)
             }
             case delimRegex(str) => {
-                val token = Delim(src.charAt(index));
-                index += 1;
+                val token = Delim(TokenData(oldIndex, oldIndex + str.length), str);
+                index += str.length;
                 consumeWhitespace();
                 token
             };
             case opRegex(str) => {
-                val token = Op(src.charAt(index));
-                index += 1;
+                val token = Op(TokenData(oldIndex, oldIndex + str.length), str);
+                index += str.length;
                 consumeWhitespace();
                 token
             }
@@ -80,12 +84,12 @@ class Tokenizer(var index: Int, var src: String) {
         }
     }
 
-    def getStream() = {
+    def getStream: List[Token] = {
         var list: List[Token] = List();
         while(index < src.length) {
-            list = getToken() :: list;
+            list = getToken :: list;
         }
-        list = EOF() :: list;
+        list = EOF(TokenData(index, index)) :: list;
         list.reverse
     }
 

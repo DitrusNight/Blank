@@ -11,17 +11,25 @@ object Main {
     val fileHandler = Source.fromFile(file);
     val src = fileHandler.getLines().mkString("\n");
     fileHandler.close();
+
+    ErrorHandler.setSrc(src);
+
     val ast = new BlankParser().parse(src);
     val typeAnalyzer = new Types();
     typeAnalyzer.populateArithmeticTypes();
+
     println(ast.toString);
     println(typeAnalyzer.inferType(Map(), ast));
+
     val newAST = typeAnalyzer.convertTypes(Map(), ast, (exp) => exp);
     println(newAST.toString);
+
     val ir = IR.convertASTToIR(IR.generateName(), newAST, (varName) => IREOF());
     println(ir.toString);
+
     LLVM.convertTopLevelLLVM(ir, Map());
     println(LLVM.context.mkString("\n"));
+
     val outFile = new File("./out/out.ll");
     val writer = new FileWriter(outFile);
     writer.write(LLVM.context.mkString("\n"));

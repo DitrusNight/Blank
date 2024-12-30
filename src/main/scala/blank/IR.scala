@@ -134,29 +134,29 @@ object IR {
 
   def convertASTToIR(name: String, exp: Expression, cont: (String) => IRExp): IRExp = {
     exp match {
-      case IntLit(lit) => {
+      case IntLit(data, lit) => {
         IRLet(name, IRI32(), RhsIntLit(lit), cont(name))
       }
-      case FloatLit(lit) => {
+      case FloatLit(data, lit) => {
         IRLet(name, IRF64(), RhsFloatLit(lit), cont(name))
       }
-      case UnitLit() => {
+      case UnitLit(data) => {
         IRLet(name, IRUnit(), RhsUnitLit(), cont(name))
       }
-      case VarName(name) => {
+      case VarName(data, name) => {
         cont(name)
       }
-      case PrimOp(op, args) => {
+      case PrimOp(data, op, args) => {
         convertList(args, (argNames) => {
           IRLet(name, IRUnk(), RhsPrim(op, argNames), cont(name))
         })
       }
-      case LetBinding(varName, typ, rhs, next) => {
+      case LetBinding(data, varName, typ, rhs, next) => {
         convertASTToIR(varName, rhs, (resName: String) => {
           convertASTToIR(generateName(), next, cont);
         })
       }
-      case IfStatement(cond, thenBr, elseBr) => {
+      case IfStatement(data, cond, thenBr, elseBr) => {
         convertASTToIR(generateName("cond"), cond, (condName: String) => {
           val res = generateName("res");
           val finallyCont = generateName("finCont");
@@ -171,12 +171,12 @@ object IR {
           )
         })
       }
-      case AccessExp(root, label) => {
+      case AccessExp(data, root, label) => {
         convertASTToIR(generateName(), root, (rootName: String) => {
           IRLet(name, IRUnk(), RhsAccess(rootName, label), cont(name))
         });
       }
-      case FunctionCall(function, args) => {
+      case FunctionCall(data, function, args) => {
         convertASTToIR(generateName(), function, (funName) => {
           convertList(args, (argsNames) => {
             val contName = generateName("cont");
@@ -189,14 +189,14 @@ object IR {
           })
         })
       }
-      case LambdaExpression(args, retType, body) => {
+      case LambdaExpression(data, args, retType, body) => {
         val contName = generateName("cont");
         IRLet(name, IRUnk(), RhsDefF(contName, args.map(elem => (elem._1, convertType(elem._2))),
           convertASTToIR(generateName(), body, (resName: String) =>
           IRCallC(contName, resName)
         )), cont(name));
       }
-      case ClassExpression(args, body) => {
+      case ClassExpression(data, args, body) => {
         /*
         val lambda = generateName("lambda");
         val contName = generateName("cont");

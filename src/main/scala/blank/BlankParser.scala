@@ -1,47 +1,52 @@
 package blank
 
+import blank.ErrorHandler.{combineData, raiseError}
+
 import scala.util.boundary
 import scala.util.boundary.break
 
-abstract class Expression
-case class IntLit(lit: Int) extends Expression {
+abstract class Expression(data: TokenData) {
+  def getData: TokenData = data;
+}
+
+case class IntLit(data: TokenData, lit: Int) extends Expression(data) {
   override def toString: String = lit.toString;
 }
-case class FloatLit(lit: Float) extends Expression {
+case class FloatLit(data: TokenData, lit: Float) extends Expression(data) {
   override def toString: String = lit.toString;
 }
-case class UnitLit() extends Expression {
+case class UnitLit(data: TokenData) extends Expression(data) {
   override def toString: String = "()";
 }
-case class VarName(name: String) extends Expression {
+case class VarName(data: TokenData, name: String) extends Expression(data) {
   override def toString: String = name;
 }
-case class PrimOp(op: String, args: List[Expression]) extends Expression {
+case class PrimOp(data: TokenData, op: String, args: List[Expression]) extends Expression(data) {
   override def toString: String = op + "(" + args.mkString(", ") + ")";
 }
-case class IfStatement(cond: Expression, thenBr: Expression, elseBr: Expression) extends Expression {
+case class IfStatement(data: TokenData, cond: Expression, thenBr: Expression, elseBr: Expression) extends Expression(data) {
   override def toString: String = "if(" + cond + ") {\n" + thenBr + "\n} else {\n" + elseBr + "}\n";
 }
-case class LetBinding(varName: String, typ: Type, rhs: Expression, next: Expression) extends Expression {
+case class LetBinding(data: TokenData, varName: String, typ: Type, rhs: Expression, next: Expression) extends Expression(data) {
   override def toString: String = "let " + varName + ": " + typ + " = " + rhs + ";\n" + next;
 }
-case class VarBinding(varName: String, typ: Type, rhs: Expression, next: Expression) extends Expression {
+case class VarBinding(data: TokenData, varName: String, typ: Type, rhs: Expression, next: Expression) extends Expression(data) {
   override def toString: String = "var " + varName + ": " + typ + " = " + rhs + ";\n" + next;
 }
-case class AccessExp(root: Expression, label: String) extends Expression {
+case class AccessExp(data: TokenData, root: Expression, label: String) extends Expression(data) {
   override def toString: String = root.toString + "." + label;
 }
-case class FunctionCall(function: Expression, args: List[Expression]) extends Expression {
+case class FunctionCall(data: TokenData, function: Expression, args: List[Expression]) extends Expression(data) {
   override def toString: String = function.toString + "(" + args.mkString(", ") + ")";
 }
-case class ClassExpression(args: List[(String, Type)], body: Expression) extends Expression {
+case class ClassExpression(data: TokenData, args: List[(String, Type)], body: Expression) extends Expression(data) {
   override def toString: String = {
     val argStr = args.map(elem => elem._1 + ": " + elem._2).mkString(", ");
     val bodyStr = body.toString;
     "class (" + argStr + ")" + " => {\n" + bodyStr.split("\n").map(elem => " " + elem).mkString("\n") + "\n}"
   };
 }
-case class LambdaExpression(args: List[(String, Type)], retType: Type, body: Expression) extends Expression {
+case class LambdaExpression(data: TokenData, args: List[(String, Type)], retType: Type, body: Expression) extends Expression(data) {
   override def toString: String = {
     val argStr = args.map(elem => elem._1 + ": " + elem._2).mkString(", ");
     val bodyStr = body.toString;
@@ -57,78 +62,100 @@ class BlankParser {
   private var index: Int = 0;
   private var tokens: List[Token] = List();
 
-  def parse(src: String) = {
+  def parse(src: String): Expression = {
     val tokenizer = new Tokenizer(0, src);
-    val tokens = tokenizer.getStream();
+    val tokens = tokenizer.getStream;
     this.index = 0;
     this.tokens = tokens;
     parseProgram()
   }
 
+  private def capData(startData: TokenData) = {
+    TokenData(startData.startIndex, tokens(index).getData.endIndex);
+  }
+
+  private def getData: TokenData = tokens(index).getData;
+
   private def parseProgram(): Expression = {
     val expr = parseStatement();
     tokens(index) match {
-      case EOF() => ()
+      case EOF(data) => ()
       case _ =>
-        // TODO Handle errors
-        throw new RuntimeException("Expected EOF but got " + tokens(index));
+        raiseError(tokens(index).getData, "Expected EOF");
     };
     expr
   }
 
   private def parseStatement(): Expression = {
     tokens(index) match {
-      case Keyword("let") => {
+      case Keyword(data, "let") => {
         index += 1;
         val name = acceptId();
         val typ = attemptParseType();
-        expectOp('=');
+        expectOp("=");
         val rhs = parseExpr();
 
         tokens(index) match {
-          case Delim(';') =>
-            expectDelim(';');
+          case Delim(endData, ";") =>
+            expectDelim(";");
             val next = parseStatement();
-            LetBinding(name, typ, rhs, next)
+            LetBinding(combineData(data, endData), name, typ, rhs, next)
           case _ =>
-            LetBinding(name, typ, rhs, UnitLit())
+            LetBinding(capData(data), name, typ, rhs, UnitLit(getData))
         }
       }
-      case Keyword("fn") => {
+      case Keyword(data, "var") => {
+        index += 1;
+        val name = acceptId();
+        val typ = attemptParseType();
+        expectOp("=");
+        val rhs = parseExpr();
+
+        tokens(index) match {
+          case Delim(endData, ";") =>
+            expectDelim(";");
+            val next = parseStatement();
+            VarBinding(combineData(data, endData), name, typ, rhs, next)
+          case _ =>
+            VarBinding(capData(data), name, typ, rhs, UnitLit(getData))
+        }
+      }
+      case Keyword(data, "fn") => {
         index += 1;
         val name = acceptId();
         val rhs = parseLambda();
         val rhsType = FunType(rhs.args.map((pair) => pair._2), rhs.retType);
         tokens(index) match {
-          case Delim(';') =>
-            expectDelim(';');
+          case Delim(endData, ";") =>
+            expectDelim(";");
             val next = parseStatement();
-            LetBinding(name, rhsType, rhs, next)
+            LetBinding(combineData(data, endData), name, rhsType, rhs, next)
           case _ =>
-            LetBinding(name, rhsType, rhs, UnitLit())
+            LetBinding(capData(data), name, rhsType, rhs, UnitLit(getData))
         }
       }
-      case Keyword("class") => {
+      case Keyword(data, "class") => {
         index += 1;
         val name = acceptId();
-        val rhs = parseClass();
+        val rhs = parseClass(data);
         val rhsType = FunType(rhs.args.map((pair) => pair._2), TypeVar("?" + uniqInd()));
         tokens(index) match {
-          case Delim(';') =>
-            expectDelim(';');
+          case Delim(endData, ";") =>
+            expectDelim(";");
             val next = parseStatement();
-            LetBinding(name, rhsType, rhs, next)
+            LetBinding(combineData(data, endData), name, rhsType, rhs, next)
           case _ =>
-            LetBinding(name, rhsType, rhs, UnitLit())
+            LetBinding(capData(data), name, rhsType, rhs, UnitLit(getData))
         }
       }
       case _ => {
+        val data = getData;
         val expr = parseExpr();
         tokens(index) match {
-          case Delim(';') =>
-            expectDelim(';');
+          case Delim(endData, ";") =>
+            expectDelim(";");
             val next = parseStatement();
-            LetBinding("var" + uniqInd(), TypeVar("?" + uniqInd()), expr, next)
+            LetBinding(combineData(data, endData), "val" + uniqInd(), TypeVar("?" + uniqInd()), expr, next)
           case _ =>
             expr
         }
@@ -138,41 +165,44 @@ class BlankParser {
 
   private def parseType(): Type = {
     tokens(index) match {
-      case Id(str) => BaseType(acceptId())
-      case Delim('{') =>
-        expectDelim('{');
-        expectDelim('}');
+      case Id(data, str) => BaseType(acceptId())
+      case Delim(data, "{") =>
+        expectDelim("{");
+        expectDelim("}");
         UnitType()
-      case Delim('(') =>
-        expectDelim('(')
+      case Delim(data, "(") =>
+        expectDelim("(")
         var args: List[Type] = List()
         tokens(index) match {
-          case Delim(')') => expectDelim(')')
+          case Delim(data, ")") => expectDelim(")")
           case _ => {
             args = List(parseType())
             while(tokens(index) match {
-              case Delim(',') => true
-              case Delim(')') => false
-              case _ => throw new RuntimeException("Unable to parse function argument list. Unknown delimiter " + tokens(index));
+              case Delim(data, ",") => true
+              case Delim(data, ")") => false
+              case _ => {
+                raiseError(tokens(index).getData, "Unable to parse function type argument list.");
+                false
+              }
             }) {
-              expectDelim(',')
+              expectDelim(",")
               args = args ++ List(parseType())
             }
-            expectDelim(')')
+            expectDelim(")")
           }
         }
-        expectOp('=');
-        expectOp('>');
+        expectOp("=");
+        expectOp(">");
         val resType = parseType();
         FunType(args, resType)
-      case _ => throw new RuntimeException("Unknown token encountered when parsing type " + tokens(index))
+      case _ => raiseError(tokens(index).getData, "Unknown token encountered when parsing type."); UnitType()
     }
   }
 
   private def attemptParseType(): Type = {
     tokens(index) match {
-      case Delim(':') => {
-        expectDelim(':');
+      case Delim(data, ":") => {
+        expectDelim(":");
         parseType()
       }
       case _ => {
@@ -186,58 +216,64 @@ class BlankParser {
   }
 
   private def parseLambda(): (LambdaExpression) = {
-    expectDelim('(');
+    val data = expectDelim("(");
     var args: List[(String, Type)] = List()
     tokens(index) match {
-      case Delim(')') => expectDelim(')');
-      case Id(str) =>
+      case Delim(data, ")") => expectDelim(")");
+      case Id(data, str) =>
         val (name, typ) = parseArg()
         args = args ++ List((name, typ))
         while(tokens(index) match {
-          case Delim(',') => true
-          case Delim(')') => false
-          case _ => throw new RuntimeException("Unexpected delimiter token in args. " + tokens(index))
+          case Delim(data, ",") => true
+          case Delim(data, ")") => false
+          case _ => {
+            raiseError(tokens(index).getData, "Expected delimiter token in args.");
+            false
+          }
         }) {
           index += 1;
           val (name, typ) = parseArg()
           args = args ++ List((name, typ))
         }
-        expectDelim(')');
+        expectDelim(")");
       case _ => {
-        throw new RuntimeException("Expected function argument list but received " + tokens(index))
+        raiseError(tokens(index).getData, "Expected function argument list.");
       }
     }
     val retTyp = attemptParseType();
-    expectOp('=');
-    expectOp('>');
+    expectOp("=");
+    expectOp(">");
     val body = parseExpr();
-    LambdaExpression(args, retTyp, body)
+    LambdaExpression(combineData(data, body.getData), args, retTyp, body)
   }
 
-  private def parseClass(): ClassExpression = {
-    expectDelim('(');
+  private def parseClass(data: TokenData): ClassExpression = {
+    expectDelim("(");
     var args: List[(String, Type)] = List()
     tokens(index) match {
-      case Delim(')') => expectDelim(')');
-      case Id(str) =>
+      case Delim(data, ")") => expectDelim(")");
+      case Id(data, str) =>
         val (name, typ) = parseArg()
         args = args ++ List((name, typ))
         while(tokens(index) match {
-          case Delim(',') => true
-          case Delim(')') => false
-          case _ => throw new RuntimeException("Unexpected delimiter token in args. " + tokens(index))
+          case Delim(data, ",") => true
+          case Delim(data, ")") => false
+          case _ => {
+            raiseError(tokens(index).getData, "Expected delimiter token in args.");
+            false
+          }
         }) {
           index += 1;
           val (name, typ) = parseArg()
           args = args ++ List((name, typ))
         }
-        expectDelim(')');
+        expectDelim(")");
       case _ => {
-        throw new RuntimeException("Expected function argument list but received " + tokens(index))
+        raiseError(tokens(index).getData, "Expected function argument list.");
       }
     }
     val body = parseExpr();
-    ClassExpression(args, body)
+    ClassExpression(combineData(data, body.getData), args, body)
   }
 
   private val precMap = Map(
@@ -271,12 +307,11 @@ class BlankParser {
     while (prec <= 1 && continue) {
       val token = tokens(index);
       token match {
-        case Op(char) =>
-          index += 1;
-          // TODO: Combine ops together into strings.
-          if (precMap.contains("" + char) && precMap("" + char) >= prec) {
-            val innerExpr = parseExpr(precMap("" + char) + assocMap("" + char));
-            expr = PrimOp(char.toString, List(expr, innerExpr));
+        case Op(data, str) =>
+          expectOp(str);
+          if (precMap.contains(str) && precMap(str) >= prec) {
+            val innerExpr = parseExpr(precMap(str) + assocMap(str));
+            expr = PrimOp(combineData(expr.getData, innerExpr.getData), str, List(expr, innerExpr));
           } else
             continue = false;
         case _ => continue = false;
@@ -290,32 +325,36 @@ class BlankParser {
     boundary {
       while (true) {
         tokens(index) match {
-          case Delim('(') =>
+          case Delim(data, "(") =>
             // Function Application
-            expectDelim('(');
+            expectDelim("(");
             var args: List[Expression] = List()
             tokens(index) match {
-              case Delim(')') => expectDelim(')');
+              case Delim(data, ")") => expectDelim(")");
               case _ =>
                 val expr = parseExpr()
                 args = args ++ List(expr)
                 while (tokens(index) match {
-                  case Delim(',') => true
-                  case Delim(')') => false
-                  case _ => throw new RuntimeException("Unexpected delimiter token in args. " + tokens(index))
+                  case Delim(data, ",") => true
+                  case Delim(data, ")") => false
+                  case _ => {
+                    raiseError(tokens(index).getData, "Unexpected delimiter token in args.");
+                    false // Never will run.
+                  }
                 }) {
                   index += 1;
                   val expr = parseExpr()
                   args = args ++ List(expr)
                 }
-                expectDelim(')');
+                expectDelim(")");
               case _ =>
-                throw new RuntimeException("Expected function application argument but received " + tokens(index))
+                raiseError(tokens(index).getData, "Expected function application argument");
             }
-            expr = FunctionCall(expr, args)
-          case Delim('.') =>
-            expectDelim('.')
-            expr = AccessExp(expr, acceptId())
+            expr = FunctionCall(capData(expr.getData), expr, args)
+          case Delim(data, ".") =>
+            expectDelim(".")
+            val id = acceptId();
+            expr = AccessExp(capData(expr.getData), expr, id)
           case _ => break();
         }
       }
@@ -325,66 +364,67 @@ class BlankParser {
 
   private def parseAtom(): Expression = {
     tokens(index) match {
-      case Keyword("new") => {
+      case Keyword(data, "new") => {
         expectKeyword("new");
         tokens(index) match {
-          case Delim('{') => {
+          case Delim(data, "{") => {
             // Anonymous structure
-            UnitLit()
+            UnitLit(data)
           }
-          case Id(str) => {
+          case Id(data, str) => {
             val id = acceptId();
-            UnitLit()
+            UnitLit(data)
+            // TODO
           }
         }
       }
-      case Keyword("if") => {
+      case Keyword(data, "if") => {
         expectKeyword("if");
-        expectDelim('(');
+        expectDelim("(");
         val cond = parseExpr();
-        expectDelim(')');
+        expectDelim(")");
         val thenBr = parseExpr();
 
         val elseBr = tokens(index) match {
-          case Keyword("else") => {
+          case Keyword(data, "else") => {
             expectKeyword("else")
             parseExpr()
           }
           case _ => {
-            UnitLit()
+            UnitLit(getData)
           }
         }
-        IfStatement(cond, thenBr, elseBr)
+        IfStatement(capData(data), cond, thenBr, elseBr)
       }
-      case Delim('{') => {
-        expectDelim('{');
+      case Delim(data, "{") => {
+        expectDelim("{");
         tokens(index) match {
-          case Delim('}') =>
-            expectDelim('}');
-            UnitLit()
+          case Delim(data, "}") =>
+            expectDelim("}");
+            UnitLit(getData)
           case _ =>
             val expr = parseStatement();
-            expectDelim('}');
+            expectDelim("}");
             expr
         }
       }
-      case Delim('(') => {
+      case Delim(data, "(") => {
         parseLambda()
       }
-      case TokenIntLit(value) =>
+      case TokenIntLit(data, value) =>
         index += 1;
-        IntLit(value.toInt)
-      case TokenFloatLit(value) =>
+        IntLit(data, value.toInt)
+      case TokenFloatLit(data, value) =>
         index += 1;
-        FloatLit(value.toFloat)
-      case Id(str) =>
+        FloatLit(data, value.toFloat)
+      case Id(data, str) =>
         index += 1;
-        VarName(str)
-      case EOF() => UnitLit()
-      case Delim(_) => UnitLit()
+        VarName(data, str)
+      case EOF(data) => UnitLit(data)
+      case Delim(data, _) => UnitLit(data)
       case _ =>
-        // TODO Handle errors
-        throw new RuntimeException("Expected atom but got " + tokens(index));
+        raiseError(tokens(index).getData, "Expected atom");
+        UnitLit(getData)
     }
   }
 
@@ -392,73 +432,75 @@ class BlankParser {
 
   private def acceptId(): String = {
     tokens(index) match {
-      case Id(str) => {
+      case Id(data, str) => {
         index += 1;
         str
       }
       case _ => {
-        // TODO Handle errors.
-        throw new RuntimeException("Expected identifier but got " + tokens(index));
+        raiseError(tokens(index).getData, "Expected identifier");
+        ""
       }
     }
   }
 
-  private def expectKeyword(str: String): Unit = {
+  private def expectKeyword(str: String): TokenData = {
     tokens(index) match {
-      case Keyword(keyword) => {
-        if (keyword == str)
+      case Keyword(data, keyword) => {
+        if (keyword == str) {
           index += 1;
-        else
-          // TODO Handle errors.
-          throw new RuntimeException("Expected keyword '" + str + "' but got " + tokens(index));
+          data
+        } else
+          raiseError(tokens(index).getData, "Expected keyword '" + str + "'.");
+          data
       }
       case _ => {
-        // TODO Handle errors.
-        throw new RuntimeException("Expected keyword '" + str + "' but got " + tokens(index));
+        raiseError(tokens(index).getData, "Expected keyword '" + str + "'.");
+        TokenData(0, 0)
       }
     }
   }
 
-  private def expectDelim(c: Char): Unit = {
+  private def expectDelim(str: String): TokenData = {
     tokens(index) match {
-      case Delim(delimChar) => {
-        if(c == delimChar)
+      case Delim(data, delim) => {
+        if(str == delim) {
           index += 1;
-        else
-          // TODO Handle errors.
-          throw new RuntimeException("Expected '" + c + "' but got " + tokens(index));
+          data
+        } else
+          raiseError(tokens(index).getData, "Expected delimiter '" + str + "'.");
+          data
       }
       case _ => {
-        // TODO Handle errors.
-        throw new RuntimeException("Expected delimiter '" + c + "' but got " + tokens(index));
+        raiseError(tokens(index).getData, "Expected delimiter '" + str + "'.");
+        TokenData(0, 0)
       }
     }
   }
 
-  private def expectOp(c: Char): Unit = {
+  private def expectOp(str: String): TokenData = {
     tokens(index) match {
-      case Op(opChar) => {
-        if (c == opChar)
+      case Op(data, op) => {
+        if (str == op)
           index += 1;
         else
-          // TODO Handle errors.
-          throw new RuntimeException("Expected '" + c + "' but got " + tokens(index));
+          raiseError(tokens(index).getData, "Expected operator '" + str + "'.");
+        data
       }
       case _ => {
-        // TODO Handle errors.
-        throw new RuntimeException("Expected operator '" + c + "' but got " + tokens(index));
+        raiseError(tokens(index).getData, "Expected operator '" + str + "'.");
+        TokenData(0, 0)
       }
     }
   }
 
   private def expectInt(): TokenIntLit = {
     tokens(index) match {
-      case intlit@TokenIntLit(_) =>
+      case intlit@TokenIntLit(_, _) =>
         index += 1;
         intlit
       case _ => {
-        // TODO Handle errors.
-        throw new RuntimeException("Expected int literal but got " + tokens(index));
+        raiseError(tokens(index).getData, "Expected integer literal.");
+        TokenIntLit(TokenData(0, 0), "0")
       }
     }
   }
