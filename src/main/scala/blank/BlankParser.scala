@@ -5,48 +5,49 @@ import blank.ErrorHandler.{combineData, raiseError}
 import scala.util.boundary
 import scala.util.boundary.break
 
-abstract class Expression(data: TokenData) {
-  def getData: TokenData = data;
-}
 
-case class IntLit(data: TokenData, lit: Int) extends Expression(data) {
+
+abstract class Expression(id: ExpID) {
+  def getID: ExpID = id;
+}
+case class IntLit(id: ExpID, lit: Int) extends Expression(id) {
   override def toString: String = lit.toString;
 }
-case class FloatLit(data: TokenData, lit: Float) extends Expression(data) {
+case class FloatLit(id: ExpID, lit: Float) extends Expression(id) {
   override def toString: String = lit.toString;
 }
-case class UnitLit(data: TokenData) extends Expression(data) {
+case class UnitLit(id: ExpID) extends Expression(id) {
   override def toString: String = "()";
 }
-case class VarName(data: TokenData, name: String) extends Expression(data) {
+case class VarName(id: ExpID, name: String) extends Expression(id) {
   override def toString: String = name;
 }
-case class PrimOp(data: TokenData, op: String, args: List[Expression]) extends Expression(data) {
+case class PrimOp(id: ExpID, op: String, args: List[Expression]) extends Expression(id) {
   override def toString: String = op + "(" + args.mkString(", ") + ")";
 }
-case class IfStatement(data: TokenData, cond: Expression, thenBr: Expression, elseBr: Expression) extends Expression(data) {
+case class IfStatement(id: ExpID, cond: Expression, thenBr: Expression, elseBr: Expression) extends Expression(id) {
   override def toString: String = "if(" + cond + ") {\n" + thenBr + "\n} else {\n" + elseBr + "}\n";
 }
-case class LetBinding(data: TokenData, varName: String, typ: Type, rhs: Expression, next: Expression) extends Expression(data) {
+case class LetBinding(id: ExpID, varName: String, typ: Type, rhs: Expression, next: Expression) extends Expression(id) {
   override def toString: String = "let " + varName + ": " + typ + " = " + rhs + ";\n" + next;
 }
-case class VarBinding(data: TokenData, varName: String, typ: Type, rhs: Expression, next: Expression) extends Expression(data) {
+case class VarBinding(id: ExpID, varName: String, typ: Type, rhs: Expression, next: Expression) extends Expression(id) {
   override def toString: String = "var " + varName + ": " + typ + " = " + rhs + ";\n" + next;
 }
-case class AccessExp(data: TokenData, root: Expression, label: String) extends Expression(data) {
+case class AccessExp(id: ExpID, root: Expression, label: String) extends Expression(id) {
   override def toString: String = root.toString + "." + label;
 }
-case class FunctionCall(data: TokenData, function: Expression, args: List[Expression]) extends Expression(data) {
+case class FunctionCall(id: ExpID, function: Expression, args: List[Expression]) extends Expression(id) {
   override def toString: String = function.toString + "(" + args.mkString(", ") + ")";
 }
-case class ClassExpression(data: TokenData, args: List[(String, Type)], body: Expression) extends Expression(data) {
+case class ClassExpression(id: ExpID, args: List[(String, Type)], body: Expression) extends Expression(id) {
   override def toString: String = {
     val argStr = args.map(elem => elem._1 + ": " + elem._2).mkString(", ");
     val bodyStr = body.toString;
     "class (" + argStr + ")" + " => {\n" + bodyStr.split("\n").map(elem => " " + elem).mkString("\n") + "\n}"
   };
 }
-case class LambdaExpression(data: TokenData, args: List[(String, Type)], retType: Type, body: Expression) extends Expression(data) {
+case class LambdaExpression(id: ExpID, args: List[(String, Type)], retType: Type, body: Expression) extends Expression(id) {
   override def toString: String = {
     val argStr = args.map(elem => elem._1 + ": " + elem._2).mkString(", ");
     val bodyStr = body.toString;
@@ -70,11 +71,26 @@ class BlankParser {
     parseProgram()
   }
 
-  private def capData(startData: TokenData) = {
-    TokenData(startData.startIndex, tokens(index).getData.endIndex);
+  private def capData(startData: TokenData): ExpID = {
+    val expData = ExpressionData(
+      TokenData(startData.startIndex, tokens(index).getData.endIndex),
+      UnknownType()
+    );
+    val id = ExpID(uniqInd())
+    ExpressionDataMap.put(id, expData);
+    id
   }
 
-  private def getData: TokenData = tokens(index).getData;
+  private def getData: ExpID = {
+    val tokenData = tokens(index - 1).getData;
+    val expData = ExpressionData(
+      tokenData,
+      UnknownType()
+    );
+    val id = ExpID(uniqInd())
+    ExpressionDataMap.put(id, expData);
+    id
+  }
 
   private def parseProgram(): Expression = {
     val expr = parseStatement();
@@ -155,7 +171,7 @@ class BlankParser {
           case Delim(endData, ";") =>
             expectDelim(";");
             val next = parseStatement();
-            LetBinding(combineData(data, endData), "val" + uniqInd(), TypeVar("?" + uniqInd()), expr, next)
+            LetBinding(combineData(ExpressionDataMap.getTokenData(data), endData), "val" + uniqInd(), TypeVar("?" + uniqInd()), expr, next)
           case _ =>
             expr
         }
@@ -244,7 +260,7 @@ class BlankParser {
     expectOp("=");
     expectOp(">");
     val body = parseExpr();
-    LambdaExpression(combineData(data, body.getData), args, retTyp, body)
+    LambdaExpression(combineData(data, ExpressionDataMap.getTokenData(body)), args, retTyp, body)
   }
 
   private def parseClass(data: TokenData): ClassExpression = {
@@ -273,7 +289,7 @@ class BlankParser {
       }
     }
     val body = parseExpr();
-    ClassExpression(combineData(data, body.getData), args, body)
+    ClassExpression(combineData(data, ExpressionDataMap.getTokenData(body)), args, body)
   }
 
   private val precMap = Map(
@@ -311,7 +327,7 @@ class BlankParser {
           expectOp(str);
           if (precMap.contains(str) && precMap(str) >= prec) {
             val innerExpr = parseExpr(precMap(str) + assocMap(str));
-            expr = PrimOp(combineData(expr.getData, innerExpr.getData), str, List(expr, innerExpr));
+            expr = PrimOp(combineData(ExpressionDataMap.getTokenData(expr), ExpressionDataMap.getTokenData(innerExpr)), str, List(expr, innerExpr));
           } else
             continue = false;
         case _ => continue = false;
@@ -350,11 +366,11 @@ class BlankParser {
               case _ =>
                 raiseError(tokens(index).getData, "Expected function application argument");
             }
-            expr = FunctionCall(capData(expr.getData), expr, args)
+            expr = FunctionCall(capData(ExpressionDataMap.getTokenData(expr)), expr, args)
           case Delim(data, ".") =>
             expectDelim(".")
             val id = acceptId();
-            expr = AccessExp(capData(expr.getData), expr, id)
+            expr = AccessExp(capData(ExpressionDataMap.getTokenData(expr)), expr, id)
           case _ => break();
         }
       }
@@ -369,11 +385,11 @@ class BlankParser {
         tokens(index) match {
           case Delim(data, "{") => {
             // Anonymous structure
-            UnitLit(data)
+            UnitLit(getData)
           }
           case Id(data, str) => {
             val id = acceptId();
-            UnitLit(data)
+            UnitLit(getData)
             // TODO
           }
         }
@@ -413,15 +429,15 @@ class BlankParser {
       }
       case TokenIntLit(data, value) =>
         index += 1;
-        IntLit(data, value.toInt)
+        IntLit(getData, value.toInt)
       case TokenFloatLit(data, value) =>
         index += 1;
-        FloatLit(data, value.toFloat)
+        FloatLit(getData, value.toFloat)
       case Id(data, str) =>
         index += 1;
-        VarName(data, str)
-      case EOF(data) => UnitLit(data)
-      case Delim(data, _) => UnitLit(data)
+        VarName(getData, str)
+      case EOF(data) => UnitLit(getData)
+      case Delim(data, _) => UnitLit(getData)
       case _ =>
         raiseError(tokens(index).getData, "Expected atom");
         UnitLit(getData)

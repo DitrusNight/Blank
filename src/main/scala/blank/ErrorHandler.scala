@@ -8,8 +8,18 @@ object ErrorHandler {
     this.sourceFileString = src;
   }
 
-  def combineData(startData: TokenData, endData: TokenData): TokenData = {
-    TokenData(startData.startIndex, endData.endIndex);
+  def combineData(startData: TokenData, endData: TokenData): ExpID = {
+    val expData = ExpressionData(
+      TokenData(startData.startIndex, endData.endIndex),
+      UnknownType()
+    );
+    val id = ExpID(uniqInd())
+    ExpressionDataMap.put(id, expData);
+    id
+  }
+
+  def raiseError(id: ExpID, err: String): Unit = {
+    raiseError(ExpressionDataMap.get(id).tokenData, err)
   }
 
   def raiseError(data: TokenData, err: String): Unit = {

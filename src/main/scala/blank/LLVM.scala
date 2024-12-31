@@ -16,7 +16,7 @@ object LLVM {
     ir match {
       case IRLet(varName, typ, rhs, next) =>
         rhs match {
-          case RhsDefF(cont, _, _) => {
+          case RhsDefF(cont, _, _, retTyp) => {
             val newBindings = convertRhsToLLVM(rhs, varName, typ, bindings, cont);
             convertTopLevelLLVM(next, newBindings)
           }
@@ -42,7 +42,8 @@ object LLVM {
         if(retCont == cont) {
           addLine("  ret " + bindings(varName)._1 + " " + bindings(varName)._2);
         } else {
-          addLine("  store " + bindings(varName)._1 + " " + bindings(varName)._2 + ", ptr " + bindings(cont)._2 + "r");
+          if (bindings.contains(cont))
+            addLine("  store " + bindings(varName)._1 + " " + bindings(varName)._2 + ", ptr " + bindings(cont)._2 + "r");
           addLine("  br label " + bindings(cont)._2);
         }
         bindings
@@ -50,7 +51,8 @@ object LLVM {
       case IRCallF(function, cont, args) => {
         val retVal = generateName("retval");
         addLine("  %" + retVal + " = call " + bindings(cont)._1 + " " + bindings(function)._2 + "(" + args.map((elem) => "" + bindings(elem)._1 + " " + bindings(elem)._2).mkString(", ") + ")");
-        addLine("  store " + bindings(cont)._1 + " %" + retVal + ", ptr " + bindings(cont)._2 + "r");
+        if(bindings.contains(cont))
+          addLine("  store " + bindings(cont)._1 + " %" + retVal + ", ptr " + bindings(cont)._2 + "r");
         addLine("  br label " + bindings(cont)._2);
         bindings
       }
@@ -58,6 +60,40 @@ object LLVM {
         addLine("  br " + bindings(cond)._1 + " " + bindings(cond)._2 + ", label " + bindings(contTrue)._2 + ", label " + bindings(contFalse)._2);
         bindings
       }
+    }
+  }
+
+  def accessVar(name: String, bindings: Map[String, (IRType, String)], typ: IRType) = {
+    if(bindings(name)._1 == typ) {
+      bindings(name)._2
+    } else {
+      val newName = "%" + generateName();
+      (bindings(name)._1, typ) match {
+        case (IRU8(), IRU16()) => addLine("  " + newName + " = zext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
+        case (IRU8(), IRI16()) => addLine("  " + newName + " = zext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
+        case (IRU8(), IRU32()) => addLine("  " + newName + " = zext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
+        case (IRU8(), IRI32()) => addLine("  " + newName + " = zext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
+        case (IRU8(), IRU64()) => addLine("  " + newName + " = zext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
+        case (IRU8(), IRI64()) => addLine("  " + newName + " = zext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
+
+        case (IRU16(), IRU32()) => addLine("  " + newName + " = zext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
+        case (IRU16(), IRI32()) => addLine("  " + newName + " = zext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
+        case (IRU16(), IRU64()) => addLine("  " + newName + " = zext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
+        case (IRU16(), IRI64()) => addLine("  " + newName + " = zext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
+
+        case (IRU32(), IRU64()) => addLine("  " + newName + " = zext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
+        case (IRU32(), IRI64()) => addLine("  " + newName + " = zext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
+
+        case (IRI8(), IRI16()) => addLine("  " + newName + " = sext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
+        case (IRI8(), IRI32()) => addLine("  " + newName + " = sext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
+        case (IRI8(), IRI64()) => addLine("  " + newName + " = sext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
+
+        case (IRI16(), IRI32()) => addLine("  " + newName + " = sext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
+        case (IRI16(), IRI64()) => addLine("  " + newName + " = sext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
+
+        case (IRI32(), IRI64()) => addLine("  " + newName + " = sext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
+      }
+      newName
     }
   }
 
@@ -80,22 +116,22 @@ object LLVM {
           case "id" =>
             bindings + (varName -> (bindings(args.head)._1, bindings(args.head)._2))
           case "+" =>
-            addLine("  %" + varName + " = add " + typ + " " + args.map((elem) => bindings(elem)._2).mkString(", "));
+            addLine("  %" + varName + " = add " + typ + " " + args.map((elem) => accessVar(elem, bindings, typ)).mkString(", "));
             bindings + (varName -> (typ, "%" + varName))
           case "-" =>
-            addLine("  %" + varName + " = sub " + typ + " " + args.map((elem) => bindings(elem)._2).mkString(", "));
+            addLine("  %" + varName + " = sub " + typ + " " + args.map((elem) => accessVar(elem, bindings, typ)).mkString(", "));
             bindings + (varName -> (typ, "%" + varName))
           case "*" =>
-            addLine("  %" + varName + " = mul " + typ + " " + args.map((elem) => bindings(elem)._2).mkString(", "));
+            addLine("  %" + varName + " = mul " + typ + " " + args.map((elem) => accessVar(elem, bindings, typ)).mkString(", "));
             bindings + (varName -> (typ, "%" + varName))
           case "/" =>
-            addLine("  %" + varName + " = div " + typ + " " + args.map((elem) => bindings(elem)._2).mkString(", "));
+            addLine("  %" + varName + " = div " + typ + " " + args.map((elem) => accessVar(elem, bindings, typ)).mkString(", "));
             bindings + (varName -> (typ, "%" + varName))
           case ">" =>
-            addLine("  %" + varName + " = icmp sgt " + bindings(args.head)._1 + " " + args.map((elem) => bindings(elem)._2).mkString(", "));
+            addLine("  %" + varName + " = icmp sgt " + bindings(args.head)._1 + " " + args.map((elem) => accessVar(elem, bindings, bindings(args.head)._1)).mkString(", "));
             bindings + (varName -> (IRBoolean(), "%" + varName))
           case "<" =>
-            addLine("  %" + varName + " = icmp slt " + bindings(args.head)._1 + " " + args.map((elem) => bindings(elem)._2).mkString(", "));
+            addLine("  %" + varName + " = icmp slt " + bindings(args.head)._1 + " " + args.map((elem) => accessVar(elem, bindings, bindings(args.head)._1)).mkString(", "));
             bindings + (varName -> (IRBoolean(), "%" + varName))
           case "=" =>
             addLine("  store " + typ + " " + bindings(args(1))._2 + ", ptr %" + args.head)
@@ -108,8 +144,8 @@ object LLVM {
         addLine("%" + varName + " = alloca " + typ);
         bindings + (varName -> (typ, "%" + varName))
       }
-      case RhsDefF(cont, args, body) => {
-        addLine("define i32 @" + varName + "(" + args.map((arg) => "" + arg._2 + " %" + arg._1).mkString(", ") + ") {");
+      case RhsDefF(cont, args, body, retTyp) => {
+        addLine("define " + retTyp + " @" + varName + "(" + args.map((arg) => "" + arg._2 + " %" + arg._1).mkString(", ") + ") {");
         // Make new bindings.
         var newBindings = bindings;
         for(arg <- args) {
@@ -123,11 +159,12 @@ object LLVM {
       case RhsDefC(args, contBody) => {
         val next = generateName("next");
         val bodyBindings = if(args.nonEmpty) {
-          addLine("  %" + varName + "r = alloca " + typ);
+          val argType = typ match { case IRCont(argType) => argType}
+          addLine("  %" + varName + "r = alloca " + argType);
           addLine("  br label %" + next);
           addLine(varName + ":");
-          addLine("  %" + args.head + " = load " + typ + ", ptr %" + varName + "r");
-          bindings + (args.head -> (typ, "%" + args.head));
+          addLine("  %" + args.head + " = load " + argType + ", ptr %" + varName + "r");
+          bindings + (args.head -> (argType, "%" + args.head));
         } else {
           addLine("  br label %" + next);
           addLine(varName + ":");
@@ -135,7 +172,8 @@ object LLVM {
         }
         convertIRToLLVM(contBody, bodyBindings, retCont);
         addLine(next + ":");
-        bindings + (varName -> (typ, "%" + varName))
+        val argType = typ match {case IRCont(argType) => argType}
+        bindings + (varName -> (argType, "%" + varName))
       }
     }
   }

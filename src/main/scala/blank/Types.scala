@@ -5,6 +5,9 @@ import blank.ErrorHandler.raiseError
 import scala.collection.immutable.List
 
 abstract class Type
+case class UnknownType() extends Type {
+  override def toString: String = "unk";
+}
 case class UnitType() extends Type {
   override def toString: String = "{}";
 }
@@ -112,7 +115,7 @@ class Types {
     }
   }
 
-  def unionType(inferredType: Type, expTyp: Type): Type = {
+  def unionType(inferredType: Type, expTyp: Type, exp: Option[Expression] = None): Type = {
     if(inferredType == expTyp)
       return inferredType;
     val newInfType = followConstraints(inferredType);
@@ -136,7 +139,7 @@ class Types {
         var newProps: Map[String, Type] = Map()
         for(label <- expProps.keySet) {
           if(inferProps.contains(label)) {
-            newProps = newProps + (label -> unionType(inferProps(label), expProps(label)))
+            newProps = newProps + (label -> unionType(inferProps(label), expProps(label), exp))
           } else {
             newProps = newProps + (label -> expProps(label))
           }
@@ -155,7 +158,7 @@ class Types {
         val classProps = fields ++ vmt ++ methods;
         for(label <- props.keySet) {
           if(classProps.contains(label)) {
-            unionType(props(label), fields(label))
+            unionType(props(label), fields(label), exp)
           } else {
             throw new RuntimeException("Unable to union class types. No field " + label + " found.");
           }
@@ -176,14 +179,20 @@ class Types {
       case (FunType(args1, ret1), FunType(args2, ret2)) => {
         // TODO Better error handling.
         // Note: Arguments must be contravariant.
-        val newArgs = args1.zip(args2).map(pair => unionType(pair._2, pair._1))
+        val newArgs = args1.zip(args2).map(pair => unionType(pair._2, pair._1, exp))
         // Return type must be covariant.
         val newRet = unionType(ret1, ret2);
-        expTyp
+        FunType(newArgs, newRet)
       }
       case (_, _) => {
-        if(!getSubtypes(Set(newExpType)).contains(newInfType))
-            throw new RuntimeException("Types do not align. " + newExpType + " !<: " + newInfType)
+        if(!getSubtypes(Set(newExpType)).contains(newInfType)) {
+          exp match {
+            case Some(exp) =>
+              raiseError(exp.getID, "Types do not align. " + newInfType + " !<: " + newExpType)
+            case None =>
+              throw new RuntimeException("Types do not align. " + newInfType + " !<: " + newExpType)
+          }
+        }
         newInfType
       }
     }
@@ -191,25 +200,25 @@ class Types {
 
   def inferType(bindings: Map[String, Type], exp: Expression): Type = {
     exp match {
-      case IntLit(data, lit: Int) => {
+      case IntLit(id, lit: Int) => {
         if(lit < 0)
           BaseType("i64");
         else if(lit < 255)
-          BaseType("i32");
+          BaseType("u8");
         else if(lit < 65535)
           BaseType("u16");
         else
           BaseType("u32");
       }
-      case FloatLit(data, lit: Float) => {
+      case FloatLit(id, lit: Float) => {
         BaseType("f64")
       }
-      case UnitLit(data) => UnitType()
-      case VarName(data, name: String) => bindings.get(name) match {
+      case UnitLit(id) => UnitType()
+      case VarName(id, name: String) => bindings.get(name) match {
         case Some(typ: Type) => typ
-        case None => raiseError(data, "Unknown variable name"); UnitType()
+        case None => raiseError(id, "Unknown variable name"); UnitType()
       }
-      case PrimOp(data, op: String, args: List[Expression]) => {
+      case PrimOp(id, op: String, args: List[Expression]) => {
         val argTypes = args.map(arg => inferType(bindings, arg));
         op match {
           case "id" => argTypes(0)
@@ -217,16 +226,18 @@ class Types {
             // TODO: Include type vars.
             (argTypes(0), argTypes(1)) match {
               case (TypeVar(x), _) => {
-                unionType(argTypes(0), argTypes(1));
+                unionType(argTypes(0), BaseType("i64"), Some(exp));
+                BaseType("i64")
               }
               case (_, TypeVar(y)) => {
-                unionType(argTypes(0), argTypes(1))
+                unionType(BaseType("i64"), argTypes(1), Some(exp));
+                BaseType("i64")
               }
               case (_, _) => {
                 arithmeticMap.get((argTypes(0), argTypes(1))) match {
                   case Some(resType: Type) => resType
                   case _ =>
-                    raiseError(data, "Unable to conform arithmetic arguments to numbers"); UnitType()
+                    raiseError(id, "Unable to conform arithmetic arguments to numbers"); UnitType()
                 }
               }
             }
@@ -235,42 +246,42 @@ class Types {
             // TODO: Include type vars.
             (argTypes(0), argTypes(1)) match {
               case (TypeVar(x), _) => {
-                unionType(argTypes(0), argTypes(1))
+                unionType(argTypes(0), argTypes(1), Some(exp))
                 BaseType("boolean")
               }
               case (_, TypeVar(y)) => {
-                unionType(argTypes(0), argTypes(1))
+                unionType(argTypes(0), argTypes(1), Some(exp))
                 BaseType("boolean")
               }
               case (_, _) => {
                 arithmeticMap.get((argTypes(0), argTypes(1))) match {
                   case Some(resType: Type) => BaseType("boolean")
                   case _ =>
-                    raiseError(data, "Unable to conform arithmetic arguments to numbers"); UnitType()
+                    raiseError(id, "Unable to conform arithmetic arguments to numbers"); UnitType()
                 }
               }
             }
           }
-          case _ => raiseError(data, "Unknown primitive " + op); UnitType()
+          case _ => raiseError(id, "Unknown primitive " + op); UnitType()
         }
       }
-      case LetBinding(data, varName: String, typ: Type, rhs: Expression, next: Expression) => {
+      case LetBinding(id, varName: String, typ: Type, rhs: Expression, next: Expression) => {
         val inferredType = inferType(bindings, rhs);
-        val resType = unionType(inferredType, typ);
+        val resType = unionType(inferredType, typ, Some(exp));
         inferType(bindings + (varName -> resType), next)
       }
-      case IfStatement(data, cond: Expression, thenBr: Expression, elseBr: Expression) => {
-        unionType(inferType(bindings, cond), BaseType("boolean"))
-        unionType(inferType(bindings, thenBr), inferType(bindings, elseBr))
+      case IfStatement(id, cond: Expression, thenBr: Expression, elseBr: Expression) => {
+        unionType(inferType(bindings, cond), BaseType("boolean"), Some(exp))
+        unionType(inferType(bindings, thenBr), inferType(bindings, elseBr), Some(exp))
       }
-      case AccessExp(data, root: Expression, label: String) => {
+      case AccessExp(id, root: Expression, label: String) => {
         inferType(bindings, root) match {
           case ClassType(fields, vmt, methods) =>
             val props = fields ++ vmt ++ methods;
             props.get(label) match {
               case Some(typ) => typ
               case None =>
-                raiseError(data, "Unable to access label " + label); UnitType()
+                raiseError(id, "Unable to access label " + label); UnitType()
             }
           case TypeVar(name) =>
             val typeVar = TypeVar("?" + uniqInd())
@@ -282,25 +293,25 @@ class Types {
             constraints = constraints + (name -> VarClassType(name, newProps))
             typeVar
           case _ =>
-            raiseError(data, "Unable to access label " + label); UnitType()
+            raiseError(id, "Unable to access label " + label); UnitType()
         }
       }
-      case FunctionCall(data, function: Expression, args: List[Expression]) => {
-        val argTypes = args.map(exp => unionType(inferType(bindings, exp), TypeVar("?" + uniqInd())))
+      case FunctionCall(id, function: Expression, args: List[Expression]) => {
+        val argTypes = args.map(exp => inferType(bindings, exp))
         val retType = TypeVar("?" + uniqInd());
         val funType = inferType(bindings, function)
-        unionType(funType, FunType(argTypes, retType)) match {
+        unionType(funType, FunType(argTypes, retType), Some(exp)) match {
           case FunType(args, res) => res
         }
       }
-      case LambdaExpression(data, args: List[(String, Type)], retType: Type, body: Expression) => {
+      case LambdaExpression(id, args: List[(String, Type)], retType: Type, body: Expression) => {
         val bodyBindings = bindings ++ args.map((pair) => pair._1 -> pair._2);
         val inferredType = inferType(bodyBindings, body);
-        val bodyType = unionType(inferredType, retType);
+        val bodyType = unionType(inferredType, retType, Some(exp));
         val argTypes = args.map((pair) => pair._2);
         FunType(argTypes, bodyType)
       }
-      case ClassExpression(data, args: List[(String, Type)], body: Expression) => {
+      case ClassExpression(id, args: List[(String, Type)], body: Expression) => {
         var runningBindings = bindings ++ args.map((pair) => pair._1 -> pair._2);
         val inferredType = inferType(runningBindings, body);
         val argTypes = args.map((pair) => pair._2);
@@ -310,7 +321,7 @@ class Types {
         var exp: Option[Expression] = Some(body);
         while(exp.isDefined) {
           exp match {
-            case Some(LetBinding(data, varName, typ, rhs@LambdaExpression(data2, args, retType, body), next)) => {
+            case Some(LetBinding(id, varName, typ, rhs@LambdaExpression(id2, args, retType, body), next)) => {
               val typ = inferType(runningBindings, rhs);
               typ match {
                 case funType@FunType(_, _) => methods = methods + (varName -> funType);
@@ -318,13 +329,13 @@ class Types {
               runningBindings = runningBindings + (varName -> typ);
               exp = Some(next);
             }
-            case Some(LetBinding(data, varName, typ, rhs, next)) => {
+            case Some(LetBinding(id, varName, typ, rhs, next)) => {
               val typ = inferType(runningBindings, rhs);
               fields = fields + (varName -> typ);
               runningBindings = runningBindings + (varName -> typ);
               exp = Some(next);
             }
-            case Some(VarBinding(data, varName, typ, rhs, next)) => {
+            case Some(VarBinding(id, varName, typ, rhs, next)) => {
               val typ = inferType(runningBindings, rhs);
               fields = fields + (varName -> typ);
               runningBindings = runningBindings + (varName -> typ)
@@ -340,11 +351,23 @@ class Types {
 
   def convertTypes(bindings: Map[String, Type], exp: Expression, cont: (Expression) => Expression): Expression = {
     exp match {
-      case IntLit(data, lit: Int) => cont(exp)
-      case FloatLit(data, lit: Float) => cont(exp)
-      case UnitLit(data) => cont(exp)
-      case VarName(data, name: String) => cont(exp)
-      case PrimOp(data, op: String, args: List[Expression]) => {
+      case IntLit(id, lit: Int) => {
+        ExpressionDataMap.putType(exp, inferType(bindings, exp));
+        cont(exp)
+      }
+      case FloatLit(id, lit: Float) => {
+        ExpressionDataMap.putType(exp, inferType(bindings, exp));
+        cont(exp)
+      }
+      case UnitLit(id) => {
+        ExpressionDataMap.putType(exp, UnitType());
+        cont(exp)
+      }
+      case VarName(id, name: String) => {
+        ExpressionDataMap.putType(exp, bindings(name));
+        cont(exp)
+      }
+      case PrimOp(id, op: String, args: List[Expression]) => {
         def convertList(list: List[Expression], cont: (List[Expression]) => Expression): Expression = {
           var newCont = cont;
           for (arg <- list.reverse) {
@@ -358,32 +381,38 @@ class Types {
           newCont(List())
         }
         convertList(args, (newArgs) => {
-          cont(PrimOp(data, op, newArgs))
+          ExpressionDataMap.putType(id, inferType(bindings, exp));
+          cont(PrimOp(id, op, newArgs))
         })
       }
-      case LetBinding(data, varName: String, typ: Type, rhs: Expression, next: Expression) => {
+      case LetBinding(id, varName: String, typ: Type, rhs: Expression, next: Expression) => {
         val newType = followConstraints(typ);
         convertTypes(bindings, rhs, (newRhs) => {
+          ExpressionDataMap.putType(newRhs, newType);
           convertTypes(bindings + (varName -> newType), next, (newNext) => {
-            cont(LetBinding(data, varName, newType, newRhs, newNext))
+            ExpressionDataMap.putType(id, ExpressionDataMap.getType(newNext));
+            cont(LetBinding(id, varName, newType, newRhs, newNext))
           })
         })
       }
-      case IfStatement(data, cond: Expression, thenBr: Expression, elseBr: Expression) => {
+      case IfStatement(id, cond: Expression, thenBr: Expression, elseBr: Expression) => {
         convertTypes(bindings, cond, (newCond) => {
+          ExpressionDataMap.putType(newCond, BaseType("boolean"));
           convertTypes(bindings, thenBr, (newThenBr) => {
             convertTypes(bindings, elseBr, (newElseBr) => {
-              cont(IfStatement(data, newCond, newThenBr, newElseBr))
+              ExpressionDataMap.putType(id, inferType(bindings, exp));
+              cont(IfStatement(id, newCond, newThenBr, newElseBr))
             })
           })
         })
       }
-      case AccessExp(data, root: Expression, label: String) => {
+      case AccessExp(id, root: Expression, label: String) => {
         convertTypes(bindings, root, (newRoot) => {
-          cont(AccessExp(data, newRoot, label))
+          ExpressionDataMap.putType(id, inferType(bindings, exp));
+          cont(AccessExp(id, newRoot, label))
         })
       }
-      case FunctionCall(data, function: Expression, args: List[Expression]) => {
+      case FunctionCall(id, function: Expression, args: List[Expression]) => {
         def convertList(list: List[Expression], cont: (List[Expression]) => Expression): Expression = {
           var newCont = cont;
           for (arg <- list.reverse) {
@@ -399,18 +428,21 @@ class Types {
 
         convertList(args, (newArgs) => {
           convertTypes(bindings, function, (newFunction) => {
-            cont(FunctionCall(data, newFunction, newArgs))
+            ExpressionDataMap.putType(id, inferType(bindings, exp));
+            cont(FunctionCall(id, newFunction, newArgs))
           });
         })
       }
-      case LambdaExpression(data, args: List[(String, Type)], retType: Type, body: Expression) => {
+      case LambdaExpression(id, args: List[(String, Type)], retType: Type, body: Expression) => {
         convertTypes(bindings ++ args, body, (newBody) => {
-          cont(LambdaExpression(data, args.map((pair) => pair._1 -> followConstraints(pair._2)), followConstraints(retType), newBody))
+          ExpressionDataMap.putType(id, inferType(bindings, exp));
+          cont(LambdaExpression(id, args.map((pair) => pair._1 -> followConstraints(pair._2)), followConstraints(retType), newBody))
         });
       }
-      case ClassExpression(data, args: List[(String, Type)], body: Expression) => {
+      case ClassExpression(id, args: List[(String, Type)], body: Expression) => {
         convertTypes(bindings ++ args, body, (newBody) => {
-          cont(ClassExpression(data, args.map((pair) => pair._1 -> followConstraints(pair._2)), newBody))
+          ExpressionDataMap.putType(id, inferType(bindings, exp));
+          cont(ClassExpression(id, args.map((pair) => pair._1 -> followConstraints(pair._2)), newBody))
         });
       }
     }

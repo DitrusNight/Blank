@@ -1,14 +1,14 @@
-fn item(x: i32): i32 => {
+fn item(x) => {
     x + 2
 };
 
-fn passer(func: (i32) => i32, x: i32) => {
+fn passer(func, x) => {
     func(x) + 5
 };
 
 fn main() => {
     let x = 1 + 1;
-    let y = x * 10;
+    let y = x * 1000;
     let res = passer(item, y + 1);
     let thing = if(x > 1) 1 else 2;
     res + thing
