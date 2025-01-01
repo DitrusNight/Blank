@@ -48,6 +48,12 @@ object ExpressionDataMap {
     map(exp.getID).typeData
   }
 
+  def cloneID(id: ExpID): ExpID = {
+    val newId = ExpID(uniqInd());
+    map = map + (newId -> ExpressionData(map(id).tokenData, map(id).typeData));
+    newId
+  }
+
 }
 
 class ExpID(id: Int) {

@@ -40,7 +40,9 @@ object LLVM {
         newnewBindings
       case IRCallC(cont, varName) => {
         if(retCont == cont) {
-          addLine("  ret " + bindings(varName)._1 + " " + bindings(varName)._2);
+          val typ = bindings(retCont)._1 match { case IRCont(argType) => argType };
+          val value = accessVar(varName, bindings, typ)
+          addLine("  ret " + typ + " " + value);
         } else {
           if (bindings.contains(cont))
             addLine("  store " + bindings(varName)._1 + " " + bindings(varName)._2 + ", ptr " + bindings(cont)._2 + "r");
@@ -63,12 +65,16 @@ object LLVM {
     }
   }
 
-  def accessVar(name: String, bindings: Map[String, (IRType, String)], typ: IRType) = {
+  def accessVar(name: String, bindings: Map[String, (IRType, String)], typ: IRType): String = {
     if(bindings(name)._1 == typ) {
       bindings(name)._2
     } else {
       val newName = "%" + generateName();
       (bindings(name)._1, typ) match {
+        case (IRValPtr(innerTyp), _) => {
+          addLine("  " + newName + " = load " + innerTyp + ", " + bindings(name)._1 + " " + bindings(name)._2);
+          accessVar(name, bindings + (name -> (innerTyp, newName)), typ)
+        }
         case (IRU8(), IRU16()) => addLine("  " + newName + " = zext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
         case (IRU8(), IRI16()) => addLine("  " + newName + " = zext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
         case (IRU8(), IRU32()) => addLine("  " + newName + " = zext " + bindings(name)._1 + " " + bindings(name)._2 + " to " + typ);
@@ -128,26 +134,33 @@ object LLVM {
             addLine("  %" + varName + " = div " + typ + " " + args.map((elem) => accessVar(elem, bindings, typ)).mkString(", "));
             bindings + (varName -> (typ, "%" + varName))
           case ">" =>
-            addLine("  %" + varName + " = icmp sgt " + bindings(args.head)._1 + " " + args.map((elem) => accessVar(elem, bindings, bindings(args.head)._1)).mkString(", "));
+            val typ = bindings(args.head)._1 match {
+              case IRValPtr(inner) => inner
+              case typ@_ => typ
+            }
+            addLine("  %" + varName + " = icmp sgt " + typ + " " + args.map((elem) => accessVar(elem, bindings, typ)).mkString(", "));
             bindings + (varName -> (IRBoolean(), "%" + varName))
           case "<" =>
-            addLine("  %" + varName + " = icmp slt " + bindings(args.head)._1 + " " + args.map((elem) => accessVar(elem, bindings, bindings(args.head)._1)).mkString(", "));
+            val typ = bindings(args.head)._1 match {
+              case IRValPtr(inner) => inner
+              case typ@_ => typ
+            }
+            addLine("  %" + varName + " = icmp slt " + typ + " " + args.map((elem) => accessVar(elem, bindings, typ)).mkString(", "));
             bindings + (varName -> (IRBoolean(), "%" + varName))
           case "=" =>
-            addLine("  store " + typ + " " + bindings(args(1))._2 + ", ptr %" + args.head)
-            val name = generateName("var" + varName);
-            addLine("  %" + name + " = load " + typ + ", ptr %" + args.head);
-            bindings + (varName -> (typ, "%" + name))
+            val valueName = accessVar(args(1), bindings, typ);
+            addLine("  store " + typ + " " + valueName + ", " + bindings(args.head)._1 + " " + bindings(args.head)._2)
+            bindings + (varName -> (bindings(args(1))._1, bindings(args(1))._2))
         }
       }
       case RhsAlloc(typ) => {
-        addLine("%" + varName + " = alloca " + typ);
-        bindings + (varName -> (typ, "%" + varName))
+        addLine("  %" + varName + " = alloca " + typ);
+        bindings + (varName -> (IRValPtr(typ), "%" + varName))
       }
       case RhsDefF(cont, args, body, retTyp) => {
         addLine("define " + retTyp + " @" + varName + "(" + args.map((arg) => "" + arg._2 + " %" + arg._1).mkString(", ") + ") {");
         // Make new bindings.
-        var newBindings = bindings;
+        var newBindings = bindings + (cont -> (IRCont(retTyp), "~INVALID. USED CONT~"));
         for(arg <- args) {
           newBindings = newBindings + (arg._1 -> (arg._2, "%" + arg._1));
         }

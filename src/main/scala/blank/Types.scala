@@ -198,7 +198,7 @@ class Types {
     }
   }
 
-  def inferType(bindings: Map[String, Type], exp: Expression): Type = {
+  def inferType(bindings: Map[String, (Boolean, Type)], exp: Expression): Type = {
     exp match {
       case IntLit(id, lit: Int) => {
         if(lit < 0)
@@ -215,7 +215,7 @@ class Types {
       }
       case UnitLit(id) => UnitType()
       case VarName(id, name: String) => bindings.get(name) match {
-        case Some(typ: Type) => typ
+        case Some((mut: Boolean, typ: Type)) => typ
         case None => raiseError(id, "Unknown variable name"); UnitType()
       }
       case PrimOp(id, op: String, args: List[Expression]) => {
@@ -262,13 +262,43 @@ class Types {
               }
             }
           }
+          case "=" => {
+            args.head match {
+              case VarName(id2, label) => {
+                if(!bindings(label)._1) {
+                  raiseError(id2, "Unable to set non-modifiable binding: " + label);
+                }
+              }
+              case _ => raiseError(id, "Unable to set expression to value.");
+            }
+            (argTypes(0), argTypes(1)) match {
+              case (TypeVar(x), _) => {
+                unionType(argTypes(0), argTypes(1), Some(exp))
+              }
+              case (_, TypeVar(y)) => {
+                unionType(argTypes(0), argTypes(1), Some(exp))
+              }
+              case (_, _) => {
+                arithmeticMap.get((argTypes(0), argTypes(1))) match {
+                  case Some(resType: Type) => resType
+                  case _ =>
+                    raiseError(id, "Unable to conform arithmetic arguments to numbers"); UnitType()
+                }
+              }
+            }
+          }
           case _ => raiseError(id, "Unknown primitive " + op); UnitType()
         }
       }
       case LetBinding(id, varName: String, typ: Type, rhs: Expression, next: Expression) => {
         val inferredType = inferType(bindings, rhs);
         val resType = unionType(inferredType, typ, Some(exp));
-        inferType(bindings + (varName -> resType), next)
+        inferType(bindings + (varName -> (false, resType)), next)
+      }
+      case VarBinding(id, varName: String, typ: Type, rhs: Expression, next: Expression) => {
+        val inferredType = inferType(bindings, rhs);
+        val resType = unionType(inferredType, typ, Some(exp));
+        inferType(bindings + (varName -> (true, resType)), next)
       }
       case IfStatement(id, cond: Expression, thenBr: Expression, elseBr: Expression) => {
         unionType(inferType(bindings, cond), BaseType("boolean"), Some(exp))
@@ -305,14 +335,14 @@ class Types {
         }
       }
       case LambdaExpression(id, args: List[(String, Type)], retType: Type, body: Expression) => {
-        val bodyBindings = bindings ++ args.map((pair) => pair._1 -> pair._2);
+        val bodyBindings = bindings ++ args.map((pair) => pair._1 -> (false, pair._2));
         val inferredType = inferType(bodyBindings, body);
         val bodyType = unionType(inferredType, retType, Some(exp));
         val argTypes = args.map((pair) => pair._2);
         FunType(argTypes, bodyType)
       }
       case ClassExpression(id, args: List[(String, Type)], body: Expression) => {
-        var runningBindings = bindings ++ args.map((pair) => pair._1 -> pair._2);
+        var runningBindings = bindings ++ args.map((pair) => pair._1 -> (false, pair._2));
         val inferredType = inferType(runningBindings, body);
         val argTypes = args.map((pair) => pair._2);
         var fields: Map[String, Type] = Map()
@@ -326,19 +356,19 @@ class Types {
               typ match {
                 case funType@FunType(_, _) => methods = methods + (varName -> funType);
               }
-              runningBindings = runningBindings + (varName -> typ);
+              runningBindings = runningBindings + (varName -> (false, typ));
               exp = Some(next);
             }
             case Some(LetBinding(id, varName, typ, rhs, next)) => {
               val typ = inferType(runningBindings, rhs);
               fields = fields + (varName -> typ);
-              runningBindings = runningBindings + (varName -> typ);
+              runningBindings = runningBindings + (varName -> (false, typ));
               exp = Some(next);
             }
             case Some(VarBinding(id, varName, typ, rhs, next)) => {
               val typ = inferType(runningBindings, rhs);
               fields = fields + (varName -> typ);
-              runningBindings = runningBindings + (varName -> typ)
+              runningBindings = runningBindings + (varName -> (true, typ))
               exp = Some(next);
             }
             case _ => exp = None;
@@ -349,7 +379,7 @@ class Types {
     }
   }
 
-  def convertTypes(bindings: Map[String, Type], exp: Expression, cont: (Expression) => Expression): Expression = {
+  def convertTypes(bindings: Map[String, (Boolean, Type)], exp: Expression, cont: (Expression) => Expression): Expression = {
     exp match {
       case IntLit(id, lit: Int) => {
         ExpressionDataMap.putType(exp, inferType(bindings, exp));
@@ -364,7 +394,7 @@ class Types {
         cont(exp)
       }
       case VarName(id, name: String) => {
-        ExpressionDataMap.putType(exp, bindings(name));
+        ExpressionDataMap.putType(exp, bindings(name)._2);
         cont(exp)
       }
       case PrimOp(id, op: String, args: List[Expression]) => {
@@ -389,9 +419,19 @@ class Types {
         val newType = followConstraints(typ);
         convertTypes(bindings, rhs, (newRhs) => {
           ExpressionDataMap.putType(newRhs, newType);
-          convertTypes(bindings + (varName -> newType), next, (newNext) => {
+          convertTypes(bindings + (varName -> (false, newType)), next, (newNext) => {
             ExpressionDataMap.putType(id, ExpressionDataMap.getType(newNext));
             cont(LetBinding(id, varName, newType, newRhs, newNext))
+          })
+        })
+      }
+      case VarBinding(id, varName: String, typ: Type, rhs: Expression, next: Expression) => {
+        val newType = followConstraints(typ);
+        convertTypes(bindings, rhs, (newRhs) => {
+          ExpressionDataMap.putType(newRhs, newType);
+          convertTypes(bindings + (varName -> (true, newType)), next, (newNext) => {
+            ExpressionDataMap.putType(id, ExpressionDataMap.getType(newNext));
+            cont(VarBinding(id, varName, newType, newRhs, newNext))
           })
         })
       }
@@ -434,13 +474,13 @@ class Types {
         })
       }
       case LambdaExpression(id, args: List[(String, Type)], retType: Type, body: Expression) => {
-        convertTypes(bindings ++ args, body, (newBody) => {
+        convertTypes(bindings ++ args.map((pair) => pair._1 -> (false, pair._2)), body, (newBody) => {
           ExpressionDataMap.putType(id, inferType(bindings, exp));
           cont(LambdaExpression(id, args.map((pair) => pair._1 -> followConstraints(pair._2)), followConstraints(retType), newBody))
         });
       }
       case ClassExpression(id, args: List[(String, Type)], body: Expression) => {
-        convertTypes(bindings ++ args, body, (newBody) => {
+        convertTypes(bindings ++ args.map((pair) => pair._1 -> (false, pair._2)), body, (newBody) => {
           ExpressionDataMap.putType(id, inferType(bindings, exp));
           cont(ClassExpression(id, args.map((pair) => pair._1 -> followConstraints(pair._2)), newBody))
         });

@@ -1,5 +1,7 @@
 package blank
 
+import blank.ExpressionDataMap.cloneID
+
 abstract class IRExp
 case class IRLet(varName: String, typ: IRType, rhs: IRRHS, next: IRExp) extends IRExp {
   override def toString: String = "let " + varName + ": " + typ + " = " + rhs + ";\n" + next;
@@ -78,14 +80,17 @@ case class IRF32() extends IRType{
 case class IRF64() extends IRType{
   override def toString: String = "f64";
 }
+case class IRValPtr(typ: IRType) extends IRType {
+  override def toString: String = typ.toString + "*";
+}
 case class IRPtr() extends IRType {
   override def toString: String = "ptr";
 }
-case class IRBoolean() extends IRType{
+case class IRBoolean() extends IRType {
   override def toString: String = "i1";
 }
-case class IRUnit() extends IRType{
-  override def toString: String = "{}";
+case class IRUnit() extends IRType {
+  override def toString: String = "i1";
 }
 /*case class IRPtr(typ: IRType, props: PtrProps) extends IRType {
   override def toString: String = "*[" + props + "]" + typ;
@@ -125,6 +130,7 @@ object IR {
 
   private def convertType(typ: Type): IRType = {
     typ match {
+      case UnitType() => IRUnit()
       case BaseType("boolean") => IRBoolean()
       case BaseType("u8") => IRU8()
       case BaseType("u16") => IRU16()
@@ -168,6 +174,19 @@ object IR {
         convertASTToIR(varName, rhs, (resName: String) => {
           convertASTToIR(generateName(), next, cont);
         })
+      }
+      case VarBinding(id, varName, typ, rhs, next) => {
+        val newTyp = convertType(typ);
+        println(newTyp);
+        IRLet(varName, IRValPtr(newTyp), RhsAlloc(newTyp),
+          convertASTToIR(
+            generateName(),
+            rhs,
+            rhsName => {
+              IRLet(generateName(), newTyp, RhsPrim("=", List(varName, rhsName)), convertASTToIR(generateName(), next, cont))
+            }
+          )
+        )
       }
       case IfStatement(id, cond, thenBr, elseBr) => {
         convertASTToIR(generateName("cond"), cond, (condName: String) => {

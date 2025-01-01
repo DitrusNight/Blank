@@ -1,15 +1,5 @@
-fn item(x) => {
-    x + 2
-};
-
-fn passer(func, x) => {
-    func(x) + 5
-};
-
 fn main() => {
-    let x = 1 + 1;
-    let y = x * 1000;
-    let res = passer(item, y + 1);
-    let thing = if(x > 1) 1 else 2;
-    res + thing
+    var y = 1;
+    y = y * 2;
+    y
 };
