@@ -49,61 +49,76 @@ case class RhsAlloc(typ: IRType) extends IRRHS {
   override def toString: String = "alloc(" + typ + ")";
 }
 
-abstract class IRType
+abstract class IRType {
+  def outputLLVM: String;
+}
 case class IRU8() extends IRType {
-  override def toString: String = "i8";
+  override def toString: String = "u8";
+  override def outputLLVM: String = "i8";
 }
 case class IRU16() extends IRType{
-  override def toString: String = "i16";
+  override def toString: String = "u16";
+  override def outputLLVM: String = "i16";
 }
 case class IRU32() extends IRType{
-  override def toString: String = "i32";
+  override def toString: String = "u32";
+  override def outputLLVM: String = "i32";
 }
 case class IRU64() extends IRType{
-  override def toString: String = "i64";
+  override def toString: String = "u64";
+  override def outputLLVM: String = "i64";
 }
 case class IRI8() extends IRType{
   override def toString: String = "i8";
+  override def outputLLVM: String = "i8";
 }
 case class IRI16() extends IRType{
   override def toString: String = "i16";
+  override def outputLLVM: String = "i16";
 }
 case class IRI32() extends IRType{
   override def toString: String = "i32";
+  override def outputLLVM: String = "i32";
 }
 case class IRI64() extends IRType{
   override def toString: String = "i64";
+  override def outputLLVM: String = "i64";
 }
 case class IRF32() extends IRType{
   override def toString: String = "f32";
+  override def outputLLVM: String = "f32";
 }
 case class IRF64() extends IRType{
   override def toString: String = "f64";
+  override def outputLLVM: String = "f64";
 }
 case class IRValPtr(typ: IRType) extends IRType {
   override def toString: String = typ.toString + "*";
+  override def outputLLVM: String = typ.outputLLVM + "*";
 }
-case class IRPtr() extends IRType {
-  override def toString: String = "ptr";
+case class IRFuncPtr(args: List[IRType], ret: IRType) extends IRType {
+  override def toString: String = "(" + args.mkString(", ") + ") => " + ret;
+  override def outputLLVM: String = "ptr";
 }
 case class IRBoolean() extends IRType {
-  override def toString: String = "i1";
+  override def toString: String = "bool";
+  override def outputLLVM: String = "i1";
 }
 case class IRUnit() extends IRType {
-  override def toString: String = "i1";
-}
-/*case class IRPtr(typ: IRType, props: PtrProps) extends IRType {
-  override def toString: String = "*[" + props + "]" + typ;
+  override def toString: String = "unit";
+  override def outputLLVM: String = "i1";
 }
 case class IRStruct(map: Map[String, IRType]) extends IRType {
-  override def toString: String = "{\n" + map.keySet.toList.map((elem) => "  " + elem + ": " + map(elem)).mkString(",\n") + "}";
-}*/
+  override def toString: String = "{\n" + map.keySet.toList.map((elem) => "  " + elem + ": " + map(elem).toString).mkString(",\n") + "\n}";
+  override def outputLLVM: String = "type { " + map.keySet.toList.map((elem) => elem + ": " + map(elem).outputLLVM).mkString(", ") + " }";
+}
 // TODO: Make typing system.
 case class IRUnk() extends IRType {
   override def toString: String = "unk";
+  override def outputLLVM: String = "unk";
 }
 case class IRCont(argType: IRType) extends IRType {
-  override def toString: String = "(" + argType + ") => ()";
+  override def outputLLVM: String = "label";
 }
 
 abstract class PtrProps;
@@ -142,8 +157,9 @@ object IR {
       case BaseType("i64") => IRI64()
       case BaseType("f32") => IRF32()
       case BaseType("f64") => IRF64()
-      case FunType(args, ret) => IRPtr()
-      case _ => IRUnk()
+      case FunType(args, ret) => IRFuncPtr(args.map(convertType), convertType(ret))
+      case ClassType(fields, vmt, methods) => IRStruct(fields.map(pair => pair._1 -> convertType(pair._2)) ++ methods.map(pair => pair._1 -> convertType(pair._2)))
+      case _ => throw new RuntimeException("Unknown type to translate: " + typ);
     }
   }
 
@@ -177,7 +193,6 @@ object IR {
       }
       case VarBinding(id, varName, typ, rhs, next) => {
         val newTyp = convertType(typ);
-        println(newTyp);
         IRLet(varName, IRValPtr(newTyp), RhsAlloc(newTyp),
           convertASTToIR(
             generateName(),
@@ -223,7 +238,7 @@ object IR {
       }
       case LambdaExpression(id, args, retType, body) => {
         val contName = generateName("cont");
-        IRLet(name, IRPtr(), RhsDefF(contName, args.map(elem => (elem._1, convertType(elem._2))),
+        IRLet(name, IRFuncPtr(args.map(elem => convertType(elem._2)), convertType(retType)), RhsDefF(contName, args.map(elem => (elem._1, convertType(elem._2))),
           convertASTToIR(generateName(), body, (resName: String) =>
             IRCallC(contName, resName)
           ), convertType(ExpressionDataMap.getType(id) match {
@@ -232,15 +247,30 @@ object IR {
         );
       }
       case ClassExpression(id, args, body) => {
-        /*
-        val lambda = generateName("lambda");
-        val contName = generateName("cont");
-        IRLet(lambda, IRUnk(), RhsDefF(contName, args.map(elem => elem._1), convertASTToIR(body, (resName: String) =>
-          IRCallC(contName, List(resName))
-        )), cont(lambda));
-        */
-        val resName = generateName("cont");
-        IRLet(resName, convertIDToIRType(id), RhsUnitLit(), cont(resName));
+
+        /*def reduce(list: List[(String, IRType)], map: (IRExp, (String, IRType)) => IRExp, cont: (IRExp) => IRExp): IRExp => IRExp = {
+          var newCont = cont;
+          for (arg <- list.reverse) {
+            val prevCont = newCont;
+            newCont = (prevExp) => {
+              prevCont(map(prevExp, arg))
+            }
+          }
+          newCont
+        }*/
+        val funcTyp = convertIDToIRType(id)
+        val retTyp = funcTyp match { case IRFuncPtr(args, ret) => ret };
+        val classCont = generateName("cont");
+        IRLet(name, funcTyp, RhsDefF(classCont, args.map(elem => (elem._1, convertType(elem._2))),
+          convertASTToIR(generateName(), body, (_) => {
+            val resName = generateName();
+            val typ = retTyp;
+            val map = typ match { case IRStruct(map) => map };
+            IRLet(resName, IRValPtr(typ), RhsAlloc(typ),
+              IRCallC(classCont, resName)
+            )
+          }),
+          retTyp), cont(name));
       }
     }
   }

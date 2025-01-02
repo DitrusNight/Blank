@@ -52,9 +52,9 @@ case class LambdaExpression(id: ExpID, args: List[(String, Type)], retType: Type
     val argStr = args.map(elem => elem._1 + ": " + elem._2).mkString(", ");
     val bodyStr = body.toString;
     if bodyStr.contains("\n") then
-      "(" + argStr + "): " + retType + " => {\n" + bodyStr.split("\n").map(elem => " " + elem).mkString("\n") + "\n}"
+      "(" + argStr + ") => " + retType + " => {\n" + bodyStr.split("\n").map(elem => " " + elem).mkString("\n") + "\n}"
     else
-      "(" + argStr + "): " + retType + " => " + bodyStr
+      "(" + argStr + ") => " + retType + " => " + bodyStr
   };
 }
 

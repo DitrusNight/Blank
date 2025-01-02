@@ -67,7 +67,7 @@ object ErrorHandler {
       println(" - " + lines(startLineIndex))
       println("   " + (" " * startLineOffset) + ("^" * (lines(startLineIndex).length - startLineOffset)));
       var i = startLineIndex + 1;
-      while (i < Math.min(startLineIndex + 2, endLineIndex)) {
+      while (i <= Math.min(startLineIndex + 2, endLineIndex)) {
         println(" - " + lines(i))
         if (i == endLineIndex) {
           println("   " + "^" * endLineOffset);

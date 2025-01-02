@@ -21,7 +21,7 @@ case class VarClassType(name: String, props: Map[String, Type]) extends Type {
   override def toString: String = "{\n" + props.mkString(", \n") + "\n}";
 }
 case class ClassType(fields: Map[String, Type], vmt: Map[String, FunType], methods: Map[String, FunType]) extends Type {
-  override def toString: String = "{\n  _vmt: {" + vmt.mkString(", \n") + "}, " + fields.mkString(", \n") + "}\nMethods: " + methods.mkString(", \n");
+  override def toString: String = "{\n  _vmt: {" + vmt.mkString(", \n") + "}, " + fields.mkString(", \n") + ", " + methods.mkString(", \n") + "\n}";
 }
 case class FunType(args: List[Type], ret: Type) extends Type {
   override def toString: String = "(" + args.mkString(", ") + ") => " + ret;

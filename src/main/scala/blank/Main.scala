@@ -19,7 +19,7 @@ object Main {
     typeAnalyzer.populateArithmeticTypes();
 
     println(ast.toString);
-    println(typeAnalyzer.inferType(Map(), ast));
+    typeAnalyzer.inferType(Map(), ast);
 
     val newAST = typeAnalyzer.convertTypes(Map(), ast, (exp) => exp);
     println(newAST.toString);

@@ -1,5 +1,11 @@
+class Item(x: u8) {
+    let y = x;
+    fn thing() => {
+        x
+    };
+};
+
 fn main() => {
-    var y = 1;
-    y = y * 2;
-    y
+    let item = Item(1);
+    item.thing()
 };
