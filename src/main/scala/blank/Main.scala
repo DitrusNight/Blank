@@ -27,9 +27,12 @@ object Main {
     val ir = IR.convertASTToIR(IR.generateName(), newAST, (varName) => IREOF());
     println(ir.toString);
 
-    LLVM.convertStructTypesExp(Map(), ir);
+    val optIr = IROpt1.performOptimizations(ir);
+    println(optIr.toString);
+
+    LLVM.convertStructTypesExp(Map(), optIr);
     LLVM.context = LLVM.context ++ List("");
-    LLVM.convertTopLevelLLVM(ir, Map());
+    LLVM.convertTopLevelLLVM(optIr, Map());
     println(LLVM.context.mkString("\n"));
 
     val outFile = new File("./out/out.ll");

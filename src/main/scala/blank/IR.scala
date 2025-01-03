@@ -43,7 +43,7 @@ case class RhsDefF(cont: String, args: List[(String, IRType)], body: IRExp, retT
   override def toString: String = "[" + cont +"](" + args.map((pair) => pair._1 + ": " + pair._2).mkString(", ") + ") => {\n" + body.toString.split("\n").map(elem => "  " + elem).mkString("\n") + "\n}";
 }
 case class RhsDefC(args: List[(String, IRType)], body: IRExp) extends IRRHS {
-  override def toString: String = "(" + args.mkString(", ") + ") => {\n" + body.toString.split("\n").map(elem => "  " + elem).mkString("\n") + "\n}";
+  override def toString: String = "(" + args.map((pair) => (pair._1 + ": " + pair._2)).mkString(", ") + ") => {\n" + body.toString.split("\n").map(elem => "  " + elem).mkString("\n") + "\n}";
 }
 case class RhsAlloc(typ: IRType) extends IRRHS {
   override def toString: String = "alloc(" + typ + ")";
