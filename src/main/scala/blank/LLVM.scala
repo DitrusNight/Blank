@@ -3,9 +3,47 @@ package blank
 object LLVM {
 
   var context: List[String] = List();
+  var structTypes: Map[IRStruct, String] = Map();
 
   def addLine(str: String): Unit = {
     context = context ++ List(str);
+  }
+
+  def convertStructTypesExp(bindings: Map[String, IRType], exp: IRExp): Unit = {
+    def checkType(typ: IRType): Unit = {
+      typ match {
+        case struct@IRStruct(map) =>
+          if(!structTypes.keySet.toList.contains(struct)) {
+            val name = "%" + generateName("struct.");
+            structTypes = structTypes + (struct -> name)
+            addLine(name + " = type " + struct.outputLLVM);
+          }
+        case _ => ()
+      }
+    }
+    def convertStructTypesRhs(bindings: Map[String, IRType], exp: IRRHS): Unit = {
+      exp match {
+        case RhsDefF(cont, args, body, retTyp) =>
+          args.foreach((elem) => checkType(elem._2));
+          checkType(retTyp);
+          convertStructTypesExp(bindings ++ args, body);
+        case RhsDefC(args, body) =>
+          args.foreach((elem) => checkType(elem._2));
+          convertStructTypesExp(bindings ++ args, body);
+        case RhsAccess(root, label) =>
+          bindings(root) match {
+            case IRValPtr(typ) => checkType(typ)
+          }
+        case _ => ()
+      }
+    }
+    exp match {
+      case IRLet(varName, typ, rhs, next) =>
+        convertStructTypesRhs(bindings, rhs);
+        checkType(typ);
+        convertStructTypesExp(bindings + (varName -> typ), next)
+      case _ => ()
+    }
   }
 
   def generateName(prefix: String = "name"): String = {
@@ -38,9 +76,9 @@ object LLVM {
         val newBindings = convertRhsToLLVM(rhs, varName, typ, bindings, retCont);
         val newnewBindings = convertIRToLLVM(next, newBindings, retCont);
         newnewBindings
-      case IRCallC(cont, varName) => {
+      case IRCallC(cont, List(varName)) => {
         if(retCont == cont) {
-          val typ = bindings(retCont)._1 match { case IRCont(argType) => argType };
+          val typ = bindings(retCont)._1 match { case IRCont(List(argType)) => argType };
           val value = accessVar(varName, bindings, typ)
           addLine("  ret " + typ.outputLLVM + " " + value);
         } else {
@@ -149,28 +187,32 @@ object LLVM {
             bindings + (varName -> (IRBoolean(), "%" + varName))
           case "=" =>
             val valueName = accessVar(args(1), bindings, typ);
-            addLine("  store " + typ.outputLLVM + " " + valueName + ", " + bindings(args.head)._1 + " " + bindings(args.head)._2)
+            addLine("  store " + typ.outputLLVM + " " + valueName + ", " + bindings(args.head)._1.outputLLVM + " " + bindings(args.head)._2)
             bindings + (varName -> (bindings(args(1))._1, bindings(args(1))._2))
         }
       }
       case RhsAlloc(typ) => {
-        addLine("  %" + varName + " = alloca " + typ.outputLLVM);
+        val typeName = typ match {
+          case struct@IRStruct(map) => structTypes(struct)
+          case _ => typ.outputLLVM;
+        }
+        addLine("  %" + varName + " = alloca " + typeName);
         bindings + (varName -> (IRValPtr(typ), "%" + varName))
       }
       case RhsAccess(root, label) => {
         val structTyp = bindings(root)._1
         val innerTyp = structTyp match {
-          case IRStruct(map) => map(label)
+          case IRValPtr(IRStruct(map)) => map(label)
         }
-        addLine("  %" + varName + " = getelementptr inbounds " + structTyp.outputLLVM + ", ptr " + accessVar(root, bindings, structTyp) + ", i32 " + (structTyp match {
-          case IRStruct(map) => map.toIndexedSeq.indexOf((label, innerTyp))
+        addLine("  %" + varName + " = getelementptr inbounds " + innerTyp.outputLLVM + ", ptr " + accessVar(root, bindings, structTyp) + ", i32 " + (structTyp match {
+          case IRValPtr(IRStruct(map)) => map.toIndexedSeq.indexOf((label, innerTyp))
         }));
         bindings + (varName -> (IRValPtr(innerTyp), "%" + varName))
       }
       case RhsDefF(cont, args, body, retTyp) => {
         addLine("define " + retTyp.outputLLVM + " @" + varName + "(" + args.map((arg) => "" + arg._2.outputLLVM + " %" + arg._1).mkString(", ") + ") {");
         // Make new bindings.
-        var newBindings = bindings + (cont -> (IRCont(retTyp), "~INVALID. USED CONT~"));
+        var newBindings = bindings + (cont -> (IRCont(List(retTyp)), "~INVALID. USED CONT~"));
         for(arg <- args) {
           newBindings = newBindings + (arg._1 -> (arg._2, "%" + arg._1));
         }
@@ -182,12 +224,12 @@ object LLVM {
       case RhsDefC(args, contBody) => {
         val next = generateName("next");
         val bodyBindings = if(args.nonEmpty) {
-          val argType = typ match { case IRCont(argType) => argType}
+          val argType = typ match { case IRCont(List(argType)) => argType}
           addLine("  %" + varName + "r = alloca " + argType.outputLLVM);
           addLine("  br label %" + next);
           addLine(varName + ":");
-          addLine("  %" + args.head + " = load " + argType.outputLLVM + ", ptr %" + varName + "r");
-          bindings + (args.head -> (argType, "%" + args.head));
+          addLine("  %" + args.head._1 + " = load " + argType.outputLLVM + ", ptr %" + varName + "r");
+          bindings + (args.head._1 -> (argType, "%" + args.head._1));
         } else {
           addLine("  br label %" + next);
           addLine(varName + ":");
@@ -195,7 +237,7 @@ object LLVM {
         }
         convertIRToLLVM(contBody, bodyBindings, retCont);
         addLine(next + ":");
-        val argType = typ match {case IRCont(argType) => argType}
+        val argType = typ match {case IRCont(List(argType)) => argType}
         bindings + (varName -> (argType, "%" + varName))
       }
     }

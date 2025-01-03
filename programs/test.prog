@@ -1,11 +1,9 @@
 class Item(x: u8) {
     let y = x;
-    fn thing() => {
-        x
-    };
+    let z = x;
 };
 
 fn main() => {
     let item = Item(1);
-    item.thing()
+    item.y
 };

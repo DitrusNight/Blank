@@ -27,6 +27,8 @@ object Main {
     val ir = IR.convertASTToIR(IR.generateName(), newAST, (varName) => IREOF());
     println(ir.toString);
 
+    LLVM.convertStructTypesExp(Map(), ir);
+    LLVM.context = LLVM.context ++ List("");
     LLVM.convertTopLevelLLVM(ir, Map());
     println(LLVM.context.mkString("\n"));
 
@@ -34,7 +36,7 @@ object Main {
     val writer = new FileWriter(outFile);
     writer.write(LLVM.context.mkString("\n"));
     writer.close();
-    "clang -O2 -o out/out out/out.ll".!!;
+    "clang -o out/out out/out.ll".!!;
   }
 
 }
