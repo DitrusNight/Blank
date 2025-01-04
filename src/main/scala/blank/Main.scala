@@ -24,7 +24,7 @@ object Main {
     val newAST = typeAnalyzer.convertTypes(Map(), ast, (exp) => exp);
     println(newAST.toString);
 
-    val ir = IR.convertASTToIR(IR.generateName(), newAST, (varName) => IREOF());
+    val ir = IR.convertASTToIR(IR.generateName(), newAST, Map(), (varName) => IREOF());
     println(ir.toString);
 
     val optIr = IROpt1.performOptimizations(ir);

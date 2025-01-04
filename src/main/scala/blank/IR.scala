@@ -1,7 +1,5 @@
 package blank
 
-import blank.ExpressionDataMap.cloneID
-
 abstract class IRExp
 case class IRLet(varName: String, typ: IRType, rhs: IRRHS, next: IRExp) extends IRExp {
   override def toString: String = "let " + varName + ": " + typ + " = " + rhs + ";\n" + next;
@@ -38,6 +36,9 @@ case class RhsPrim(op: String, args: List[String]) extends IRRHS {
 }
 case class RhsAccess(root: String, label: String) extends IRRHS {
   override def toString: String = root + "." + label;
+}
+case class RhsDeref(name: String) extends IRRHS {
+  override def toString: String = "*" + name;
 }
 case class RhsDefF(cont: String, args: List[(String, IRType)], body: IRExp, retTyp: IRType) extends IRRHS {
   override def toString: String = "[" + cont +"](" + args.map((pair) => pair._1 + ": " + pair._2).mkString(", ") + ") => {\n" + body.toString.split("\n").map(elem => "  " + elem).mkString("\n") + "\n}";
@@ -93,10 +94,10 @@ case class IRF64() extends IRType{
   override def outputLLVM: String = "f64";
 }
 case class IRValPtr(typ: IRType) extends IRType {
-  override def toString: String = typ.toString + "*";
+  override def toString: String = "*" + typ;
   override def outputLLVM: String =
     (typ match {
-      case struct@IRStruct(map) => LLVM.structTypes(struct)
+      case struct@IRStruct(className, map) => LLVM.structTypes(struct)
       case _ => typ.outputLLVM
     }) + "*";
 }
@@ -112,11 +113,10 @@ case class IRUnit() extends IRType {
   override def toString: String = "unit";
   override def outputLLVM: String = "i1";
 }
-case class IRStruct(map: Map[String, IRType]) extends IRType {
+case class IRStruct(className: String, map: Map[String, IRType]) extends IRType {
   override def toString: String = "{ " + map.keySet.toList.map((elem) => elem + ": " + map(elem).toString).mkString(",") + " }";
   override def outputLLVM: String = "{ " + map.keySet.toList.map((elem) => map(elem).outputLLVM).mkString(", ") + " }";
 }
-// TODO: Make typing system.
 case class IRUnk() extends IRType {
   override def toString: String = "unk";
   override def outputLLVM: String = "unk";
@@ -133,14 +133,14 @@ case class PtrValue() extends PtrProps;
 
 object IR {
 
-  def generateName(prefix: String = "name") = prefix + uniqInd();
+  def generateName(prefix: String = "name"): String = prefix + uniqInd();
 
-  private def convertList(list: List[Expression], cont: (List[String]) => IRExp): IRExp = {
+  private def convertList(list: List[Expression], closureContext: Map[String, Expression], cont: (List[String]) => IRExp): IRExp = {
     var newCont = cont;
     for (arg <- list.reverse) {
       val prevCont = newCont;
       newCont = (elemNames: List[String]) => {
-        convertASTToIR(generateName(), arg, (elemName) => {
+        convertASTToIR(generateName(), arg, closureContext, (elemName) => {
           prevCont(elemName :: elemNames)
         })
       }
@@ -163,16 +163,18 @@ object IR {
       case BaseType("f32") => IRF32()
       case BaseType("f64") => IRF64()
       case FunType(args, ret) => IRFuncPtr(args.map(convertType), convertType(ret))
-      case ClassType(fields, vmt, methods) => IRValPtr(IRStruct(fields.map(pair => pair._1 -> convertType(pair._2)) ++ methods.map(pair => pair._1 -> convertType(pair._2))))
+      case ClassType(className, fields, vmt, methods) => IRValPtr(IRStruct(className, fields.map(pair => pair._1 -> convertType(pair._2))))
       case _ => throw new RuntimeException("Unknown type to translate: " + typ);
     }
   }
 
-  def convertIDToIRType(id: ExpID): IRType = {
+  private def convertIDToIRType(id: ExpID): IRType = {
     convertType(ExpressionDataMap.getType(id))
   }
 
-  def convertASTToIR(name: String, exp: Expression, cont: (String) => IRExp): IRExp = {
+  private def wrapFunctionType(typ: IRFuncPtr, closure: IRType) = IRFuncPtr(closure :: typ.args, typ.ret)
+
+  def convertASTToIR(name: String, exp: Expression, closureContext: Map[String, Expression], cont: (String) => IRExp): IRExp = {
     exp match {
       case IntLit(id, lit) => {
         IRLet(name, convertIDToIRType(id), RhsIntLit(lit), cont(name))
@@ -184,16 +186,19 @@ object IR {
         IRLet(name, IRUnit(), RhsUnitLit(), cont(name))
       }
       case VarName(id, oldName) => {
-        IRLet(name, convertIDToIRType(id), RhsPrim("id", List(oldName)), cont(name))
+        closureContext.get(oldName) match {
+          case Some(newExp) => convertASTToIR(name, newExp, closureContext, cont)
+          case None => IRLet(name, convertIDToIRType(id), RhsPrim("id", List(oldName)), cont(name))
+        }
       }
       case PrimOp(id, op, args) => {
-        convertList(args, (argNames) => {
+        convertList(args, closureContext, (argNames) => {
           IRLet(name, convertIDToIRType(id), RhsPrim(op, argNames), cont(name))
         })
       }
       case LetBinding(id, varName, typ, rhs, next) => {
-        convertASTToIR(varName, rhs, (resName: String) => {
-          convertASTToIR(generateName(), next, cont);
+        convertASTToIR(varName, rhs, closureContext, (resName: String) => {
+          convertASTToIR(generateName(), next, closureContext - varName, cont);
         })
       }
       case VarBinding(id, varName, typ, rhs, next) => {
@@ -202,22 +207,23 @@ object IR {
           convertASTToIR(
             generateName(),
             rhs,
+            closureContext,
             rhsName => {
-              IRLet(generateName(), newTyp, RhsPrim("=", List(varName, rhsName)), convertASTToIR(generateName(), next, cont))
+              IRLet(generateName(), newTyp, RhsPrim("=", List(varName, rhsName)), convertASTToIR(generateName(), next, closureContext - varName, cont))
             }
           )
         )
       }
       case IfStatement(id, cond, thenBr, elseBr) => {
-        convertASTToIR(generateName("cond"), cond, (condName: String) => {
+        convertASTToIR(generateName("cond"), cond, closureContext, (condName: String) => {
           val res = generateName("res");
           val finallyCont = generateName("finCont");
           val thenCont = generateName("thenCont");
           val elseCont = generateName("elseCont");
           val argTyp = convertIDToIRType(id);
           IRLet(finallyCont, IRCont(List(argTyp)), RhsDefC(List((res, argTyp)), IRLet(name, convertIDToIRType(id), RhsPrim("id", List(res)), cont(res))),
-            IRLet(thenCont, IRCont(List()), RhsDefC(List(), convertASTToIR(generateName(), thenBr, (res) => IRCallC(finallyCont, List(res)))),
-              IRLet(elseCont, IRCont(List()), RhsDefC(List(), convertASTToIR(generateName(), elseBr, (res) => IRCallC(finallyCont, List(res)))),
+            IRLet(thenCont, IRCont(List()), RhsDefC(List(), convertASTToIR(generateName(), thenBr, closureContext, (res) => IRCallC(finallyCont, List(res)))),
+              IRLet(elseCont, IRCont(List()), RhsDefC(List(), convertASTToIR(generateName(), elseBr, closureContext, (res) => IRCallC(finallyCont, List(res)))),
                 IRIf(condName, thenCont, elseCont)
               )
             )
@@ -225,64 +231,143 @@ object IR {
         })
       }
       case AccessExp(id, root, label) => {
-        convertASTToIR(generateName(), root, (rootName: String) => {
-          IRLet(name, convertIDToIRType(id), RhsAccess(rootName, label), cont(name))
+        val typ = convertIDToIRType(id);
+        val ptrName = generateName();
+        convertASTToIR(generateName(), root, closureContext, (rootName: String) => {
+          IRLet(ptrName, IRValPtr(typ), RhsAccess(rootName, label),
+            IRLet(name, typ, RhsDeref(ptrName), cont(name)))
         });
       }
       case FunctionCall(id, function, args) => {
-        convertASTToIR(generateName(), function, (funName) => {
-          convertList(args, (argsNames) => {
-            val contName = generateName("cont");
-            val ret = generateName("ret");
-            val argTyp = convertIDToIRType(id);
-            IRLet(contName, IRCont(List(argTyp)), RhsDefC(List((ret, argTyp)), {
-              IRLet(name, convertIDToIRType(id), RhsPrim("id", List(ret)), cont(name))
-            }),
-              IRCallF(funName, contName, argsNames)
-            )
-          })
-        })
+        function match {
+          case AccessExp(accessId, root, label) => {
+            val typ = convertIDToIRType(root.getID);
+            typ match {
+              case IRValPtr(IRStruct(className, map)) => {
+                convertASTToIR(name, FunctionCall(id, VarName(accessId, className + "$" + label), root :: args), closureContext, cont)
+              }
+            }
+          }
+          case _ => {
+            convertASTToIR(generateName(), function, closureContext, (funName) => {
+              convertList(args, closureContext, (argsNames) => {
+                val contName = generateName("cont");
+                val ret = generateName("ret");
+                val argTyp = convertIDToIRType(id);
+                IRLet(contName, IRCont(List(argTyp)), RhsDefC(List((ret, argTyp)), {
+                  IRLet(name, convertIDToIRType(id), RhsPrim("id", List(ret)), cont(name))
+                }),
+                  IRCallF(funName, contName, argsNames)
+                )
+              })
+            })
+          }
+        }
       }
       case LambdaExpression(id, args, retType, body) => {
         val contName = generateName("cont");
         IRLet(name, IRFuncPtr(args.map(elem => convertType(elem._2)), convertType(retType)), RhsDefF(contName, args.map(elem => (elem._1, convertType(elem._2))),
-          convertASTToIR(generateName(), body, (resName: String) =>
+          convertASTToIR(generateName(), body, closureContext -- args.map((pair) => pair._1), (resName: String) =>
             IRCallC(contName, List(resName))
           ), convertType(ExpressionDataMap.getType(id) match {
             case FunType(args, ret) => ret
           })), cont(name)
         );
       }
-      case ClassExpression(id, args, body) => {
+      case ClassExpression(id, args, map) => {
 
-        def reduce(list: List[(String, IRType)], ptrName: String, cont: () => IRExp): IRExp = {
+        def reduce(list: List[(String, Type)], ptrName: String, cont: () => IRExp): IRExp = {
           var newCont = cont;
           for (pair <- list.reverse) {
             val prevCont = newCont;
+            val currPair = pair;
             newCont = () => {
               val fieldPtr = generateName();
-              IRLet(fieldPtr, pair._2, RhsAccess(ptrName, pair._1),
-                IRLet(generateName(), pair._2, RhsPrim("=", List(fieldPtr, pair._1)), prevCont())
+              val typ = convertType(currPair._2)
+              IRLet(fieldPtr, IRValPtr(typ), RhsAccess(ptrName, currPair._1),
+                IRLet(generateName(), typ, RhsPrim("=", List(fieldPtr, currPair._1)), prevCont())
               )
             }
           }
           newCont()
         }
+        /*
+        def reduceMethods(list: List[(String, LambdaExpression)], ptrName: String, cont: () => IRExp): IRExp = {
+          var newCont = cont;
+          for (pair <- list.reverse) {
+            val prevCont = newCont;
+            val currPair = pair;
+            newCont = () => {
+              val fieldPtr = generateName();
+              val typ = IRFuncPtr(currPair._2.args.map(pair => convertType(pair._2)), convertType(currPair._2.retType))
+              IRLet(fieldPtr, IRValPtr(typ), RhsAccess(ptrName, currPair._1),
+                IRLet(generateName(), typ, RhsPrim("=", List(fieldPtr, name + "$" + currPair._1)), prevCont())
+              )
+            }
+          }
+          newCont()
+        }*/
         val funcTyp = convertIDToIRType(id)
-        val retTyp = funcTyp match { case IRFuncPtr(args, ret) => ret };
+        val classTyp = funcTyp match { case IRFuncPtr(args, ret) => ret };
         val classCont = generateName("cont");
-        IRLet(name, funcTyp, RhsDefF(classCont, args.map(elem => (elem._1, convertType(elem._2))),
-          convertASTToIR(generateName(), body, (_) => {
-            val resName = generateName();
-            val typ = retTyp;
-            val map = typ match { case IRValPtr(IRStruct(map)) => map };
-            IRLet(resName, typ, RhsAlloc(typ match { case IRValPtr(typ) => typ}),
-              reduce(map.toList, resName, () => {
-                IRCallC(classCont, List(resName))
+
+        val resName = generateName();
+        val fieldMap = classTyp match {
+          case IRValPtr(IRStruct(className, map)) => map
+        };
+
+        val closureName = generateName("closure");
+        var newCont = () => {
+          IRLet(name, funcTyp, RhsDefF(classCont, args.map(elem => (elem._1, convertType(elem._2))),
+            IRLet(resName, classTyp, RhsAlloc(classTyp match { case IRValPtr(typ) => typ }),
+              reduce(args, resName, () => {
+                //reduceMethods(map.toList, resName, () => {
+                  IRCallC(classCont, List(resName))
+                //})
               })
-            )
-          }),
-          retTyp), cont(name));
+            ), classTyp), cont(name))
+        };
+
+        val varId = ExpressionDataMap.cloneID(id);
+
+        ExpressionDataMap.putType(varId, ExpressionDataMap.getType(varId) match {
+          case FunType(args, classTyp@ClassType(className, fields, vmt, methods)) => classTyp
+        });
+
+        val newClosureCtx = closureContext ++ args.map(
+          (argPair) => {
+            val accessId = ExpressionDataMap.cloneID(id);
+
+            ExpressionDataMap.putType(accessId, ExpressionDataMap.getType(accessId) match {
+              case FunType(args, classTyp@ClassType(className, fields, vmt, methods)) => {
+                if(fields.contains(argPair._1)) {
+                  fields(argPair._1)
+                } else if(vmt.contains(argPair._1)) {
+                  vmt(argPair._1)
+                } else {
+                  methods(argPair._1)
+                }
+              }
+            });
+
+            (argPair._1 -> (AccessExp(accessId, VarName(varId, closureName), argPair._1)))
+          }
+        );
+
+        for(pair <- map) {
+          val contName = generateName("cont");
+          val lambda = pair._2;
+
+          val defF = RhsDefF(contName, (closureName, classTyp) :: lambda.args.map(elem => (elem._1, convertType(elem._2))),
+            convertASTToIR(generateName(), lambda.body, newClosureCtx, (resName: String) =>
+              IRCallC(contName, List(resName))
+            ), convertType(lambda.retType))
+          val currCont = newCont;
+          val currPair = pair;
+          newCont = () => IRLet(name + "$" + currPair._1, IRFuncPtr(classTyp :: lambda.args.map(elem => convertType(elem._2)), convertType(lambda.retType)), defF, currCont())
+        }
+
+        newCont();
       }
     }
   }

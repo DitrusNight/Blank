@@ -40,10 +40,10 @@ case class AccessExp(id: ExpID, root: Expression, label: String) extends Express
 case class FunctionCall(id: ExpID, function: Expression, args: List[Expression]) extends Expression(id) {
   override def toString: String = function.toString + "(" + args.mkString(", ") + ")";
 }
-case class ClassExpression(id: ExpID, args: List[(String, Type)], body: Expression) extends Expression(id) {
+case class ClassExpression(id: ExpID, args: List[(String, Type)], methods: Map[String, LambdaExpression]) extends Expression(id) {
   override def toString: String = {
     val argStr = args.map(elem => elem._1 + ": " + elem._2).mkString(", ");
-    val bodyStr = body.toString;
+    val bodyStr = methods.map((elem) => elem._1 + ": " + elem._2).mkString(",\n");
     "class (" + argStr + ")" + " => {\n" + bodyStr.split("\n").map(elem => " " + elem).mkString("\n") + "\n}"
   };
 }
@@ -289,7 +289,25 @@ class BlankParser {
       }
     }
     val body = parseExpr();
-    ClassExpression(combineData(data, ExpressionDataMap.getTokenData(body)), args, body)
+    var exp = body;
+    var map: Map[String, LambdaExpression] = Map();
+    while(exp match { case LetBinding(id, varName, typ, rhs, next) => true; case _ => false }) {
+      exp match {
+        case LetBinding(id, varName, typ, rhs, next) => {
+          rhs match {
+            case lambda@LambdaExpression(id, args, retType, body) => {
+              map = map + (varName -> lambda);
+            }
+            /*case ClassExpression(id, args, methods) => { }*/
+            case _ => raiseError(exp.getID, "Expected function definition for class.")
+          }
+          exp = next
+        }
+        case UnitLit(id) => ()
+        case _ => raiseError(exp.getID, "Expected function definition for class.")
+      }
+    }
+    ClassExpression(combineData(data, ExpressionDataMap.getTokenData(body)), args, map)
   }
 
   private val precMap = Map(

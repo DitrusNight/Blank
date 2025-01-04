@@ -20,7 +20,7 @@ case class TypeVar(name: String) extends Type {
 case class VarClassType(name: String, props: Map[String, Type]) extends Type {
   override def toString: String = "{\n" + props.mkString(", \n") + "\n}";
 }
-case class ClassType(fields: Map[String, Type], vmt: Map[String, FunType], methods: Map[String, FunType]) extends Type {
+case class ClassType(className: String, fields: Map[String, Type], vmt: Map[String, FunType], methods: Map[String, FunType]) extends Type {
   override def toString: String = "{\n  _vmt: {" + vmt.mkString(", \n") + "}, " + fields.mkString(", \n") + ", " + methods.mkString(", \n") + "\n}";
 }
 case class FunType(args: List[Type], ret: Type) extends Type {
@@ -98,8 +98,9 @@ class Types {
           case Some(newTyp) => followConstraints(newTyp, path + name)
           case _ => typ
         }
-      case ClassType(fields, vmt, methods) =>
+      case ClassType(className, fields, vmt, methods) =>
         ClassType(
+          className,
           fields.map(pair => pair._1 -> followConstraints(pair._2, path)),
           vmt.map(pair => pair._1 -> followConstraintsFun(pair._2, path)),
           methods.map(pair => pair._1 -> followConstraintsFun(pair._2, path))
@@ -153,7 +154,7 @@ class Types {
         constraints = constraints + (varName1 -> newVarClass) + (varName2 -> TypeVar(varName1))
         VarClassType(varName1, newProps)
       }
-      case (VarClassType(varName1, props), ClassType(fields, vmt, methods)) => {
+      case (VarClassType(varName1, props), ClassType(className, fields, vmt, methods)) => {
         // TODO Better error handling.
         val classProps = fields ++ vmt ++ methods;
         for(label <- props.keySet) {
@@ -165,7 +166,7 @@ class Types {
         }
         newExpType
       }
-      case (ClassType(fields, vmt, methods), VarClassType(varName, props)) => {
+      case (ClassType(className, fields, vmt, methods), VarClassType(varName, props)) => {
         // TODO Better error handling.
         val newProps = fields ++ vmt ++ methods
         for(label <- props.keySet) {
@@ -198,7 +199,7 @@ class Types {
     }
   }
 
-  def inferType(bindings: Map[String, (Boolean, Type)], exp: Expression): Type = {
+  def inferType(bindings: Map[String, (Boolean, Type)], exp: Expression, requestedName: Option[String] = None): Type = {
     exp match {
       case IntLit(id, lit: Int) => {
         if(lit < 0)
@@ -291,7 +292,7 @@ class Types {
         }
       }
       case LetBinding(id, varName: String, typ: Type, rhs: Expression, next: Expression) => {
-        val inferredType = inferType(bindings, rhs);
+        val inferredType = inferType(bindings, rhs, Some(varName));
         val resType = unionType(inferredType, typ, Some(exp));
         inferType(bindings + (varName -> (false, resType)), next)
       }
@@ -306,7 +307,7 @@ class Types {
       }
       case AccessExp(id, root: Expression, label: String) => {
         inferType(bindings, root) match {
-          case ClassType(fields, vmt, methods) =>
+          case ClassType(className, fields, vmt, methods) =>
             val props = fields ++ vmt ++ methods;
             props.get(label) match {
               case Some(typ) => typ
@@ -341,40 +342,16 @@ class Types {
         val argTypes = args.map((pair) => pair._2);
         FunType(argTypes, bodyType)
       }
-      case ClassExpression(id, args: List[(String, Type)], body: Expression) => {
-        var runningBindings = bindings ++ args.map((pair) => pair._1 -> (false, pair._2));
-        val inferredType = inferType(runningBindings, body);
-        val argTypes = args.map((pair) => pair._2);
-        var fields: Map[String, Type] = Map()
+      case ClassExpression(id, args: List[(String, Type)], map: Map[String, LambdaExpression]) => {
+        val newBindings = bindings ++ args.map((pair) => pair._1 -> (true, pair._2));
+        val argTypes = args.map((pair) => pair._2)
+        val fields: Map[String, Type] = args.toMap;
         val vmt: Map[String, FunType] = Map()
         var methods: Map[String, FunType] = Map()
-        var exp: Option[Expression] = Some(body);
-        while(exp.isDefined) {
-          exp match {
-            case Some(LetBinding(id, varName, typ, rhs@LambdaExpression(id2, args, retType, body), next)) => {
-              val typ = inferType(runningBindings, rhs);
-              typ match {
-                case funType@FunType(_, _) => methods = methods + (varName -> funType);
-              }
-              runningBindings = runningBindings + (varName -> (false, typ));
-              exp = Some(next);
-            }
-            case Some(LetBinding(id, varName, typ, rhs, next)) => {
-              val typ = inferType(runningBindings, rhs);
-              fields = fields + (varName -> typ);
-              runningBindings = runningBindings + (varName -> (false, typ));
-              exp = Some(next);
-            }
-            case Some(VarBinding(id, varName, typ, rhs, next)) => {
-              val typ = inferType(runningBindings, rhs);
-              fields = fields + (varName -> typ);
-              runningBindings = runningBindings + (varName -> (true, typ))
-              exp = Some(next);
-            }
-            case _ => exp = None;
-          }
+        for(function <- map) {
+          methods = methods + (function._1 -> (inferType(newBindings, function._2) match { case funTyp@FunType(args, ret) => funTyp }))
         }
-        FunType(argTypes, ClassType(fields, vmt, methods))
+        FunType(argTypes, ClassType(requestedName match {case Some(name) => name; case None => "WTF"}, fields, vmt, methods))
       }
     }
   }
@@ -479,11 +456,28 @@ class Types {
           cont(LambdaExpression(id, args.map((pair) => pair._1 -> followConstraints(pair._2)), followConstraints(retType), newBody))
         });
       }
-      case ClassExpression(id, args: List[(String, Type)], body: Expression) => {
-        convertTypes(bindings ++ args.map((pair) => pair._1 -> (false, pair._2)), body, (newBody) => {
+      case ClassExpression(id, args: List[(String, Type)], map: Map[String, LambdaExpression]) => {
+        val newBindings = bindings ++ args.map((pair) => pair._1 -> (false, pair._2));
+
+        map.values.foreach((lambda) => {
+          ExpressionDataMap.putType(lambda.id, inferType(newBindings, lambda));
+        })
+        ExpressionDataMap.putType(id, inferType(newBindings, exp));
+        cont(ClassExpression(
+          id,
+          args,
+          map.map((pair) => (
+            pair._1 -> (convertTypes(
+              newBindings,
+              pair._2,
+              newExp => newExp
+            ) match { case lambda@LambdaExpression(_, _, _, _) => lambda })
+          ))
+        ))
+        /*convertTypes(bindings ++ args.map((pair) => pair._1 -> (false, pair._2)), body, (newBody) => {
           ExpressionDataMap.putType(id, inferType(bindings, exp));
           cont(ClassExpression(id, args.map((pair) => pair._1 -> followConstraints(pair._2)), newBody))
-        });
+        });*/
       }
     }
   }

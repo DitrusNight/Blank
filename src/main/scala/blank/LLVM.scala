@@ -2,7 +2,7 @@ package blank
 
 object LLVM {
 
-  var context: List[String] = List();
+  var context: List[String] = List("target triple = \"x86_64-pc-linux-gnu\"", "");
   var structTypes: Map[IRStruct, String] = Map();
 
   def addLine(str: String): Unit = {
@@ -12,7 +12,7 @@ object LLVM {
   def convertStructTypesExp(bindings: Map[String, IRType], exp: IRExp): Unit = {
     def checkType(typ: IRType): Unit = {
       typ match {
-        case struct@IRStruct(map) =>
+        case struct@IRStruct(className, map) =>
           if(!structTypes.keySet.toList.contains(struct)) {
             val name = "%" + generateName("struct.");
             structTypes = structTypes + (struct -> name)
@@ -89,12 +89,21 @@ object LLVM {
         bindings
       }
       case IRCallF(function, cont, args) => {
-        val retVal = generateName("retval");
-        addLine("  %" + retVal + " = call " + bindings(cont)._1.outputLLVM + " " + bindings(function)._2 + "(" + args.map((elem) => "" + bindings(elem)._1.outputLLVM + " " + bindings(elem)._2).mkString(", ") + ")");
-        if(bindings.contains(cont))
-          addLine("  store " + bindings(cont)._1.outputLLVM + " %" + retVal + ", ptr " + bindings(cont)._2 + "r");
-        addLine("  br label " + bindings(cont)._2);
-        bindings
+        if(retCont == cont) {
+          val retVal = generateName("retval");
+          val contArgTyp = bindings(cont)._1 match { case IRCont(List(arg)) => arg }
+          addLine("  %" + retVal + " = tail call " + contArgTyp.outputLLVM + " " + bindings(function)._2 + "(" + args.map((elem) => "" + bindings(elem)._1.outputLLVM + " " + bindings(elem)._2).mkString(", ") + ")");
+          addLine("  ret " + contArgTyp.outputLLVM + " %" + retVal);
+          bindings
+        } else {
+          val retVal = generateName("retval");
+          val contArgTyp = bindings(cont)._1 match { case IRCont(List(arg)) => arg }
+          addLine("  %" + retVal + " = call " + contArgTyp.outputLLVM + " " + bindings(function)._2 + "(" + args.map((elem) => "" + bindings(elem)._1.outputLLVM + " " + bindings(elem)._2).mkString(", ") + ")");
+          if (bindings.contains(cont))
+            addLine("  store " + contArgTyp.outputLLVM + " %" + retVal + ", ptr " + bindings(cont)._2 + "r");
+          addLine("  br label " + bindings(cont)._2);
+          bindings
+        }
       }
       case IRIf(cond, contTrue, contFalse) => {
         addLine("  br " + bindings(cond)._1.outputLLVM + " " + bindings(cond)._2 + ", label " + bindings(contTrue)._2 + ", label " + bindings(contFalse)._2);
@@ -193,7 +202,7 @@ object LLVM {
       }
       case RhsAlloc(typ) => {
         val typeName = typ match {
-          case struct@IRStruct(map) => structTypes(struct)
+          case struct@IRStruct(className, map) => structTypes(struct)
           case _ => typ.outputLLVM;
         }
         addLine("  %" + varName + " = alloca " + typeName);
@@ -202,10 +211,10 @@ object LLVM {
       case RhsAccess(root, label) => {
         val structTyp = bindings(root)._1
         val innerTyp = structTyp match {
-          case IRValPtr(IRStruct(map)) => map(label)
+          case IRValPtr(IRStruct(className, map)) => map(label)
         }
         addLine("  %" + varName + " = getelementptr inbounds " + innerTyp.outputLLVM + ", ptr " + accessVar(root, bindings, structTyp) + ", i32 " + (structTyp match {
-          case IRValPtr(IRStruct(map)) => map.toIndexedSeq.indexOf((label, innerTyp))
+          case IRValPtr(IRStruct(className, map)) => map.toIndexedSeq.indexOf((label, innerTyp))
         }));
         bindings + (varName -> (IRValPtr(innerTyp), "%" + varName))
       }
@@ -237,8 +246,13 @@ object LLVM {
         }
         convertIRToLLVM(contBody, bodyBindings, retCont);
         addLine(next + ":");
-        val argType = typ match {case IRCont(List(argType)) => argType}
-        bindings + (varName -> (argType, "%" + varName))
+        bindings + (varName -> (typ, "%" + varName))
+      }
+      case RhsDeref(ptrName) => {
+        val typ = bindings(ptrName)._1;
+        val innerTyp = typ match {case IRValPtr(typ) => typ};
+        addLine("  %" + varName + " = load " + innerTyp.outputLLVM + ", " + bindings(ptrName)._1.outputLLVM + " " + bindings(ptrName)._2);
+        bindings + (varName -> (innerTyp, "%" + varName))
       }
     }
   }

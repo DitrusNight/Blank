@@ -2,28 +2,32 @@ package blank
 
 object IROpt1 {
 
-  def removeID(exp: IRExp): IRExp = {
+  private def removeID(exp: IRExp, topLevel: Boolean): IRExp = {
     exp match {
       case IRLet(varName, typ, rhs, next) => {
         rhs match {
-          case RhsPrim("id", List(arg)) => removeID(IRHelper.rename(varName, arg, next))
+          case RhsPrim("id", List(arg)) => if(topLevel) {
+            IRLet(varName, typ, rhs, removeID(next, topLevel))
+          } else {
+            removeID(IRHelper.rename(varName, arg, next), topLevel)
+          }
           case RhsDefF(cont, args, body, retTyp) => {
-            IRLet(varName, typ, RhsDefF(cont, args, removeID(body), retTyp), removeID(next))
+            IRLet(varName, typ, RhsDefF(cont, args, removeID(body, false), retTyp), removeID(next, topLevel))
           }
           case RhsDefC(args, body) => {
-            IRLet(varName, typ, RhsDefC(args, removeID(body)), removeID(next))
+            IRLet(varName, typ, RhsDefC(args, removeID(body, topLevel)), removeID(next, topLevel))
           }
-          case _ => IRLet(varName, typ, rhs, removeID(next))
+          case _ => IRLet(varName, typ, rhs, removeID(next, topLevel))
         }
       }
       case _ => exp
     }
   }
 
-  def removeUnusedBindings(exp: IRExp, topLevel: Boolean): IRExp = {
+  private def removeUnusedBindings(exp: IRExp, topLevel: Boolean): IRExp = {
     exp match {
       case IRLet(varName, typ, rhs, next) => {
-        val freeVars = IRHelper.freeVariables(next, Set());
+        val freeVars = IRHelper.freeVariables(next);
         if(!freeVars.contains(varName) && !IRHelper.hasSideEffects(rhs) && !topLevel) {
           next
         } else {
@@ -34,7 +38,7 @@ object IROpt1 {
     }
   }
 
-  def removeUnusedBindings(rhs: IRRHS): IRRHS = {
+  private def removeUnusedBindings(rhs: IRRHS): IRRHS = {
     rhs match {
       case RhsDefF(cont, args, body, retTyp) => {
         RhsDefF(cont, args, removeUnusedBindings(body, false), retTyp)
@@ -46,10 +50,37 @@ object IROpt1 {
     }
   }
 
+  private def tailRec(exp: IRExp): IRExp = {
+    exp match {
+      case IRLet(varName, typ, rhs, next) => {
+        rhs match {
+          case RhsDefF(cont, args, body, retTyp) => {
+            IRLet(varName, typ, RhsDefF(cont, args, tailRec(body), retTyp), tailRec(next))
+          }
+          case RhsDefC(defArgs, body) => {
+            body match {
+              case IRCallC(cont, args) => {
+                if(args == defArgs.map((elem) => elem._1)) {
+                  tailRec(IRHelper.rename(varName, cont, next))
+                } else {
+                  IRLet(varName, typ, rhs, tailRec(next))
+                }
+              }
+              case _ => IRLet(varName, typ, RhsDefC(defArgs, tailRec(body)), tailRec(next))
+            }
+          }
+          case _ => IRLet(varName, typ, rhs, tailRec(next))
+        }
+      }
+      case _ => exp
+    }
+  }
+
   def performOptimizations(exp: IRExp): IRExp = {
-    val noID = removeID(exp);
+    val noID = removeID(exp, true);
     val noUnused = removeUnusedBindings(noID, true);
-    noUnused
+    val optTailRec = tailRec(noUnused);
+    optTailRec
   }
 
 }

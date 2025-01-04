@@ -2,26 +2,32 @@ package blank
 
 object IRHelper {
 
-  def freeVariables(exp: IRExp, bound: Set[String]): Set[String] = {
+  def freeVariables(exp: IRExp): Set[String] = {
     exp match {
       case IRLet(varName, typ, rhs, next) => {
-        freeVariables(rhs, bound) ++ freeVariables(next, bound + varName);
+        (freeVariables(rhs) ++ freeVariables(next)) - varName;
       }
       case IRCallF(func, cont, args) => {
-        (args.toSet + cont) -- bound
+        args.toSet + cont
       }
       case IRCallC(func, args) => {
-        (args.toSet) -- bound
+        args.toSet + func
       }
       case IREOF() => Set()
     }
   }
 
-  def freeVariables(rhs: IRRHS, bound: Set[String]): Set[String] = {
+  def freeVariables(rhs: IRRHS): Set[String] = {
     rhs match {
-      case RhsDefF(cont, args, body, retTyp) => {
-        freeVariables(body, bound ++ args.map((elem) => elem._1))
+      case RhsPrim(op, args) => args.toSet
+      case RhsAccess(root, label) => Set(root)
+      case RhsDefC(args, body) => {
+        freeVariables(body) -- args.map((pair) => pair._1).toSet
       }
+      case RhsDefF(cont, args, body, retTyp) => {
+        freeVariables(body) -- args.map((pair) => pair._1).toSet
+      }
+      case RhsDeref(name) => Set(name)
       case _ => Set()
     }
   }
@@ -77,6 +83,7 @@ object IRHelper {
         RhsPrim(op, replaceList(args))
       }
       case RhsAccess(root, label) => RhsAccess(replace(root), label)
+      case RhsDeref(name) => RhsDeref(replace(name))
 
       // No-ops
       case RhsIntLit(lit) => rhs
