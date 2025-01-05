@@ -30,16 +30,16 @@ object Main {
     val optIr = IROpt1.performOptimizations(ir);
     println(optIr.toString);
 
-    LLVM.convertStructTypesExp(Map(), optIr);
     LLVM.context = LLVM.context ++ List("");
-    LLVM.convertTopLevelLLVM(optIr, Map());
+    LLVM.initClasses();
+    LLVM.convertTopLevelLLVM(optIr, IRTypes.vmtMap.map((elem) => (elem._1 + "$_vmt") -> (IRValPtr(IRVmt(elem._1)), "@" + elem._1 + "$_vmt")));
     println(LLVM.context.mkString("\n"));
 
     val outFile = new File("./out/out.ll");
     val writer = new FileWriter(outFile);
     writer.write(LLVM.context.mkString("\n"));
     writer.close();
-    "clang -o out/out out/out.ll".!!;
+    "clang -g -O0 -o out/out out/out.ll".!!;
   }
 
 }

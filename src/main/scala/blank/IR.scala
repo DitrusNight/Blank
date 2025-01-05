@@ -40,8 +40,8 @@ case class RhsAccess(root: String, label: String) extends IRRHS {
 case class RhsDeref(name: String) extends IRRHS {
   override def toString: String = "*" + name;
 }
-case class RhsDefF(cont: String, args: List[(String, IRType)], body: IRExp, retTyp: IRType) extends IRRHS {
-  override def toString: String = "[" + cont +"](" + args.map((pair) => pair._1 + ": " + pair._2).mkString(", ") + ") => {\n" + body.toString.split("\n").map(elem => "  " + elem).mkString("\n") + "\n}";
+case class RhsDefF(cont: String, attrs: List[String], args: List[(String, IRType)], body: IRExp, retTyp: IRType) extends IRRHS {
+  override def toString: String = attrs.mkString("|") + "[" + cont +"](" + args.map((pair) => pair._1 + ": " + pair._2).mkString(", ") + ") => {\n" + body.toString.split("\n").map(elem => "  " + elem).mkString("\n") + "\n}";
 }
 case class RhsDefC(args: List[(String, IRType)], body: IRExp) extends IRRHS {
   override def toString: String = "(" + args.map((pair) => (pair._1 + ": " + pair._2)).mkString(", ") + ") => {\n" + body.toString.split("\n").map(elem => "  " + elem).mkString("\n") + "\n}";
@@ -50,81 +50,7 @@ case class RhsAlloc(typ: IRType) extends IRRHS {
   override def toString: String = "alloc(" + typ + ")";
 }
 
-abstract class IRType {
-  def outputLLVM: String;
-}
-case class IRU8() extends IRType {
-  override def toString: String = "u8";
-  override def outputLLVM: String = "i8";
-}
-case class IRU16() extends IRType{
-  override def toString: String = "u16";
-  override def outputLLVM: String = "i16";
-}
-case class IRU32() extends IRType{
-  override def toString: String = "u32";
-  override def outputLLVM: String = "i32";
-}
-case class IRU64() extends IRType{
-  override def toString: String = "u64";
-  override def outputLLVM: String = "i64";
-}
-case class IRI8() extends IRType{
-  override def toString: String = "i8";
-  override def outputLLVM: String = "i8";
-}
-case class IRI16() extends IRType{
-  override def toString: String = "i16";
-  override def outputLLVM: String = "i16";
-}
-case class IRI32() extends IRType{
-  override def toString: String = "i32";
-  override def outputLLVM: String = "i32";
-}
-case class IRI64() extends IRType{
-  override def toString: String = "i64";
-  override def outputLLVM: String = "i64";
-}
-case class IRF32() extends IRType{
-  override def toString: String = "f32";
-  override def outputLLVM: String = "f32";
-}
-case class IRF64() extends IRType{
-  override def toString: String = "f64";
-  override def outputLLVM: String = "f64";
-}
-case class IRValPtr(typ: IRType) extends IRType {
-  override def toString: String = "*" + typ;
-  override def outputLLVM: String =
-    (typ match {
-      case struct@IRStruct(className, map) => LLVM.structTypes(struct)
-      case _ => typ.outputLLVM
-    }) + "*";
-}
-case class IRFuncPtr(args: List[IRType], ret: IRType) extends IRType {
-  override def toString: String = "f(" + args.mkString(", ") + ") => " + ret;
-  override def outputLLVM: String = "ptr";
-}
-case class IRBoolean() extends IRType {
-  override def toString: String = "bool";
-  override def outputLLVM: String = "i1";
-}
-case class IRUnit() extends IRType {
-  override def toString: String = "unit";
-  override def outputLLVM: String = "i1";
-}
-case class IRStruct(className: String, map: Map[String, IRType]) extends IRType {
-  override def toString: String = "{ " + map.keySet.toList.map((elem) => elem + ": " + map(elem).toString).mkString(",") + " }";
-  override def outputLLVM: String = "{ " + map.keySet.toList.map((elem) => map(elem).outputLLVM).mkString(", ") + " }";
-}
-case class IRUnk() extends IRType {
-  override def toString: String = "unk";
-  override def outputLLVM: String = "unk";
-}
-case class IRCont(args: List[IRType]) extends IRType {
-  override def toString: String = "c(" + args.mkString(", ") + ")";
-  override def outputLLVM: String = "label";
-}
+
 
 abstract class PtrProps;
 case class PtrHeap() extends PtrProps;
@@ -162,8 +88,26 @@ object IR {
       case BaseType("i64") => IRI64()
       case BaseType("f32") => IRF32()
       case BaseType("f64") => IRF64()
-      case FunType(args, ret) => IRFuncPtr(args.map(convertType), convertType(ret))
-      case ClassType(className, fields, vmt, methods) => IRValPtr(IRStruct(className, fields.map(pair => pair._1 -> convertType(pair._2))))
+      case FunType(attrs, args, ret) => IRFuncPtr(attrs, args.map(convertType), convertType(ret))
+      case ClassType(className, fields, methods) => {
+        IRTypes.vmtMap = IRTypes.vmtMap + (className -> (generateName("struct"), VmtStruct(
+          methods.filter(pair => pair._2.attrs.contains("virtual")).map((pair) => pair._1 -> (
+            convertType(pair._2) match {
+              case funcPtr@IRFuncPtr(attrs, args, retTyp) => IRFuncPtr(attrs, IRClass(className) :: args, retTyp)
+            }))
+        )))
+        IRTypes.classMap = IRTypes.classMap + (className -> (generateName("struct"), ClassStruct(
+          fields.map(pair => pair._1 -> convertType(pair._2)),
+          methods
+            .filter(pair => !pair._2.attrs.contains("virtual"))
+            .map((pair) => pair._1 -> ((
+              convertType(pair._2) match {
+                case funcPtr@IRFuncPtr(attrs, args, retTyp) => IRFuncPtr(attrs, IRClass(className) :: args, retTyp)
+              }))),
+          IRVmt(className),
+        )));
+        IRValPtr(IRClass(className))
+      }
       case _ => throw new RuntimeException("Unknown type to translate: " + typ);
     }
   }
@@ -171,8 +115,6 @@ object IR {
   private def convertIDToIRType(id: ExpID): IRType = {
     convertType(ExpressionDataMap.getType(id))
   }
-
-  private def wrapFunctionType(typ: IRFuncPtr, closure: IRType) = IRFuncPtr(closure :: typ.args, typ.ret)
 
   def convertASTToIR(name: String, exp: Expression, closureContext: Map[String, Expression], cont: (String) => IRExp): IRExp = {
     exp match {
@@ -243,8 +185,35 @@ object IR {
           case AccessExp(accessId, root, label) => {
             val typ = convertIDToIRType(root.getID);
             typ match {
-              case IRValPtr(IRStruct(className, map)) => {
-                convertASTToIR(name, FunctionCall(id, VarName(accessId, className + "$" + label), root :: args), closureContext, cont)
+              case IRValPtr(IRClass(className)) => {
+                val classStruct = IRTypes.classMap(className)
+                val vmtStruct = IRTypes.vmtMap(className)
+                if(classStruct._2.methods.contains(label)) {
+                  convertASTToIR(name, FunctionCall(id, VarName(accessId, className + "$" + label), root :: args), closureContext, cont)
+                } else {
+                  val vmtMethod = vmtStruct._2.methods(label);
+                  convertASTToIR(generateName(), root, closureContext, (rootName) => {
+                    convertList(args, closureContext, (argsNames) => {
+                      val vmtPtrName = generateName("vmtPtr");
+                      val vmtName = generateName("vmt");
+                      val funcPtrName = generateName("funcPtr");
+                      val funcName = generateName("func");
+                      val contName = generateName("cont");
+                      val retName = generateName("ret");
+                      IRLet(vmtPtrName, IRValPtr(IRValPtr(IRVmt(className))), RhsAccess(rootName, "_vmt"),
+                        IRLet(vmtName, IRValPtr(IRVmt(className)), RhsDeref(vmtPtrName),
+                          IRLet(funcPtrName, IRValPtr(vmtMethod), RhsAccess(vmtName, label),
+                            IRLet(funcName, vmtMethod, RhsDeref(funcPtrName),
+                              IRLet(contName, IRCont(List(vmtMethod.ret)), RhsDefC(List((retName, vmtMethod.ret)), cont(retName)),
+                                IRCallF(funcName, contName, argsNames)
+                              )
+                            )
+                          )
+                        )
+                      )
+                    })
+                  })
+                }
               }
             }
           }
@@ -264,13 +233,13 @@ object IR {
           }
         }
       }
-      case LambdaExpression(id, args, retType, body) => {
+      case LambdaExpression(id, attrs, args, retType, body) => {
         val contName = generateName("cont");
-        IRLet(name, IRFuncPtr(args.map(elem => convertType(elem._2)), convertType(retType)), RhsDefF(contName, args.map(elem => (elem._1, convertType(elem._2))),
+        IRLet(name, IRFuncPtr(attrs, args.map(elem => convertType(elem._2)), convertType(retType)), RhsDefF(contName, attrs, args.map(elem => (elem._1, convertType(elem._2))),
           convertASTToIR(generateName(), body, closureContext -- args.map((pair) => pair._1), (resName: String) =>
             IRCallC(contName, List(resName))
           ), convertType(ExpressionDataMap.getType(id) match {
-            case FunType(args, ret) => ret
+            case FunType(attrs, args, ret) => ret
           })), cont(name)
         );
       }
@@ -291,47 +260,40 @@ object IR {
           }
           newCont()
         }
-        /*
-        def reduceMethods(list: List[(String, LambdaExpression)], ptrName: String, cont: () => IRExp): IRExp = {
-          var newCont = cont;
-          for (pair <- list.reverse) {
-            val prevCont = newCont;
-            val currPair = pair;
-            newCont = () => {
-              val fieldPtr = generateName();
-              val typ = IRFuncPtr(currPair._2.args.map(pair => convertType(pair._2)), convertType(currPair._2.retType))
-              IRLet(fieldPtr, IRValPtr(typ), RhsAccess(ptrName, currPair._1),
-                IRLet(generateName(), typ, RhsPrim("=", List(fieldPtr, name + "$" + currPair._1)), prevCont())
-              )
-            }
-          }
-          newCont()
-        }*/
+
         val funcTyp = convertIDToIRType(id)
-        val classTyp = funcTyp match { case IRFuncPtr(args, ret) => ret };
+        val classTyp = funcTyp match { case IRFuncPtr(attrs, args, ret) => ret };
         val classCont = generateName("cont");
 
-        val resName = generateName();
+        val allocName = generateName();
         val fieldMap = classTyp match {
-          case IRValPtr(IRStruct(className, map)) => map
+          case IRValPtr(IRClass(className)) => IRTypes.classMap(className)._2.fields
         };
 
+        val vmtPtr = generateName("vmtptr");
+        val vmtTyp = classTyp match {
+          case IRValPtr(IRClass(className)) => IRValPtr(IRVmt(className))
+        }
+
+        val className = name;
         val closureName = generateName("closure");
         var newCont = () => {
-          IRLet(name, funcTyp, RhsDefF(classCont, args.map(elem => (elem._1, convertType(elem._2))),
-            IRLet(resName, classTyp, RhsAlloc(classTyp match { case IRValPtr(typ) => typ }),
-              reduce(args, resName, () => {
-                //reduceMethods(map.toList, resName, () => {
-                  IRCallC(classCont, List(resName))
-                //})
-              })
+          IRLet(className, funcTyp, RhsDefF(classCont, List(), args.map(elem => (elem._1, convertType(elem._2))),
+            IRLet(allocName, classTyp, RhsAlloc(classTyp match { case IRValPtr(typ) => typ }),
+              IRLet(vmtPtr, IRValPtr(vmtTyp), RhsAccess(allocName, "_vmt"),
+                IRLet(generateName(), vmtTyp, RhsPrim("=", List(vmtPtr, className + "$_vmt")),
+                  reduce(args, allocName, () => {
+                    IRCallC(classCont, List(allocName))
+                  })
+                )
+              )
             ), classTyp), cont(name))
         };
 
         val varId = ExpressionDataMap.cloneID(id);
 
         ExpressionDataMap.putType(varId, ExpressionDataMap.getType(varId) match {
-          case FunType(args, classTyp@ClassType(className, fields, vmt, methods)) => classTyp
+          case FunType(attrs, args, classTyp@ClassType(className, fields, methods)) => classTyp
         });
 
         val newClosureCtx = closureContext ++ args.map(
@@ -339,11 +301,9 @@ object IR {
             val accessId = ExpressionDataMap.cloneID(id);
 
             ExpressionDataMap.putType(accessId, ExpressionDataMap.getType(accessId) match {
-              case FunType(args, classTyp@ClassType(className, fields, vmt, methods)) => {
+              case FunType(attrs, args, classTyp@ClassType(className, fields, methods)) => {
                 if(fields.contains(argPair._1)) {
                   fields(argPair._1)
-                } else if(vmt.contains(argPair._1)) {
-                  vmt(argPair._1)
                 } else {
                   methods(argPair._1)
                 }
@@ -358,13 +318,13 @@ object IR {
           val contName = generateName("cont");
           val lambda = pair._2;
 
-          val defF = RhsDefF(contName, (closureName, classTyp) :: lambda.args.map(elem => (elem._1, convertType(elem._2))),
+          val defF = RhsDefF(contName, pair._2.attrs, (closureName, classTyp) :: lambda.args.map(elem => (elem._1, convertType(elem._2))),
             convertASTToIR(generateName(), lambda.body, newClosureCtx, (resName: String) =>
               IRCallC(contName, List(resName))
             ), convertType(lambda.retType))
           val currCont = newCont;
           val currPair = pair;
-          newCont = () => IRLet(name + "$" + currPair._1, IRFuncPtr(classTyp :: lambda.args.map(elem => convertType(elem._2)), convertType(lambda.retType)), defF, currCont())
+          newCont = () => IRLet(name + "$" + currPair._1, IRFuncPtr(pair._2.attrs, classTyp :: lambda.args.map(elem => convertType(elem._2)), convertType(lambda.retType)), defF, currCont())
         }
 
         newCont();

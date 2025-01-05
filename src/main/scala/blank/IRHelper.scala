@@ -8,7 +8,7 @@ object IRHelper {
         (freeVariables(rhs) ++ freeVariables(next)) - varName;
       }
       case IRCallF(func, cont, args) => {
-        args.toSet + cont
+        args.toSet + cont + func
       }
       case IRCallC(func, args) => {
         args.toSet + func
@@ -24,7 +24,7 @@ object IRHelper {
       case RhsDefC(args, body) => {
         freeVariables(body) -- args.map((pair) => pair._1).toSet
       }
-      case RhsDefF(cont, args, body, retTyp) => {
+      case RhsDefF(cont, attrs, args, body, retTyp) => {
         freeVariables(body) -- args.map((pair) => pair._1).toSet
       }
       case RhsDeref(name) => Set(name)
@@ -65,11 +65,11 @@ object IRHelper {
     def replace(str: String): String = if(str == name) newName else str;
     def replaceList(list: List[String]): List[String] = list.map((str) => replace(str));
     rhs match {
-      case RhsDefF(cont, args, body, retTyp) => {
+      case RhsDefF(cont, attrs, args, body, retTyp) => {
         if(cont == name || args.map((pair) => pair._1).contains(name)) {
           rhs
         } else {
-          RhsDefF(cont, args, rename(name, newName, body), retTyp)
+          RhsDefF(cont, attrs, args, rename(name, newName, body), retTyp)
         }
       }
       case RhsDefC(args, body) => {

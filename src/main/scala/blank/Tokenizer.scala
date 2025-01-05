@@ -35,6 +35,7 @@ class Tokenizer(var index: Int, var src: String) {
         "false",
         "if",
         "else",
+        "virtual",
     )
 
     private def getToken: Token = {

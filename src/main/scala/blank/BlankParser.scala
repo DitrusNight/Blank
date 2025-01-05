@@ -2,6 +2,7 @@ package blank
 
 import blank.ErrorHandler.{combineData, raiseError}
 
+import scala.collection.immutable.List as next
 import scala.util.boundary
 import scala.util.boundary.break
 
@@ -47,7 +48,7 @@ case class ClassExpression(id: ExpID, args: List[(String, Type)], methods: Map[S
     "class (" + argStr + ")" + " => {\n" + bodyStr.split("\n").map(elem => " " + elem).mkString("\n") + "\n}"
   };
 }
-case class LambdaExpression(id: ExpID, args: List[(String, Type)], retType: Type, body: Expression) extends Expression(id) {
+case class LambdaExpression(id: ExpID, attrs: List[String], args: List[(String, Type)], retType: Type, body: Expression) extends Expression(id) {
   override def toString: String = {
     val argStr = args.map(elem => elem._1 + ": " + elem._2).mkString(", ");
     val bodyStr = body.toString;
@@ -136,11 +137,29 @@ class BlankParser {
             VarBinding(capData(data), name, typ, rhs, UnitLit(getData))
         }
       }
+      case Keyword(data, "virtual") => {
+        expectKeyword("virtual");
+        expectKeyword("fn");
+        val name = acceptId();
+        val rhs = parseLambda() match {
+          case LambdaExpression(id, attrs, args, retType, body) =>
+            LambdaExpression(id, "virtual" :: attrs, args, retType, body)
+        };
+        val rhsType = FunType(rhs.attrs, rhs.args.map((pair) => pair._2), rhs.retType);
+        tokens(index) match {
+          case Delim(endData, ";") =>
+            expectDelim(";");
+            val next = parseStatement();
+            LetBinding(combineData(data, endData), name, rhsType, rhs, next)
+          case _ =>
+            LetBinding(capData(data), name, rhsType, rhs, UnitLit(getData))
+        }
+      }
       case Keyword(data, "fn") => {
-        index += 1;
+        expectKeyword("fn");
         val name = acceptId();
         val rhs = parseLambda();
-        val rhsType = FunType(rhs.args.map((pair) => pair._2), rhs.retType);
+        val rhsType = FunType(rhs.attrs, rhs.args.map((pair) => pair._2), rhs.retType);
         tokens(index) match {
           case Delim(endData, ";") =>
             expectDelim(";");
@@ -154,7 +173,7 @@ class BlankParser {
         index += 1;
         val name = acceptId();
         val rhs = parseClass(data);
-        val rhsType = FunType(rhs.args.map((pair) => pair._2), TypeVar("?" + uniqInd()));
+        val rhsType = FunType(List(), rhs.args.map((pair) => pair._2), TypeVar("?" + uniqInd()));
         tokens(index) match {
           case Delim(endData, ";") =>
             expectDelim(";");
@@ -210,7 +229,7 @@ class BlankParser {
         expectOp("=");
         expectOp(">");
         val resType = parseType();
-        FunType(args, resType)
+        FunType(List(), args, resType)
       case _ => raiseError(tokens(index).getData, "Unknown token encountered when parsing type."); UnitType()
     }
   }
@@ -260,7 +279,7 @@ class BlankParser {
     expectOp("=");
     expectOp(">");
     val body = parseExpr();
-    LambdaExpression(combineData(data, ExpressionDataMap.getTokenData(body)), args, retTyp, body)
+    LambdaExpression(combineData(data, ExpressionDataMap.getTokenData(body)), List(), args, retTyp, body)
   }
 
   private def parseClass(data: TokenData): ClassExpression = {
@@ -295,7 +314,7 @@ class BlankParser {
       exp match {
         case LetBinding(id, varName, typ, rhs, next) => {
           rhs match {
-            case lambda@LambdaExpression(id, args, retType, body) => {
+            case lambda@LambdaExpression(id, attrs, args, retType, body) => {
               map = map + (varName -> lambda);
             }
             /*case ClassExpression(id, args, methods) => { }*/

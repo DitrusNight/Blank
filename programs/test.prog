@@ -1,8 +1,9 @@
 class Item(x: u8) {
-    fn test() => x;
+    virtual fn test() => x;
+    fn test2() => x;
 };
 
 fn main() => {
     let item = Item(1);
-    item.test() + item.x
+    item.test2() + item.x + item.test()
 };

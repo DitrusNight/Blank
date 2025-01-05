@@ -11,8 +11,8 @@ object IROpt1 {
           } else {
             removeID(IRHelper.rename(varName, arg, next), topLevel)
           }
-          case RhsDefF(cont, args, body, retTyp) => {
-            IRLet(varName, typ, RhsDefF(cont, args, removeID(body, false), retTyp), removeID(next, topLevel))
+          case RhsDefF(cont, attrs, args, body, retTyp) => {
+            IRLet(varName, typ, RhsDefF(cont, attrs, args, removeID(body, false), retTyp), removeID(next, topLevel))
           }
           case RhsDefC(args, body) => {
             IRLet(varName, typ, RhsDefC(args, removeID(body, topLevel)), removeID(next, topLevel))
@@ -40,8 +40,8 @@ object IROpt1 {
 
   private def removeUnusedBindings(rhs: IRRHS): IRRHS = {
     rhs match {
-      case RhsDefF(cont, args, body, retTyp) => {
-        RhsDefF(cont, args, removeUnusedBindings(body, false), retTyp)
+      case RhsDefF(cont, attrs, args, body, retTyp) => {
+        RhsDefF(cont, attrs, args, removeUnusedBindings(body, false), retTyp)
       }
       case RhsDefC(args, body) => {
         RhsDefC(args, removeUnusedBindings(body, false))
@@ -54,8 +54,8 @@ object IROpt1 {
     exp match {
       case IRLet(varName, typ, rhs, next) => {
         rhs match {
-          case RhsDefF(cont, args, body, retTyp) => {
-            IRLet(varName, typ, RhsDefF(cont, args, tailRec(body), retTyp), tailRec(next))
+          case RhsDefF(cont, attrs, args, body, retTyp) => {
+            IRLet(varName, typ, RhsDefF(cont, attrs, args, tailRec(body), retTyp), tailRec(next))
           }
           case RhsDefC(defArgs, body) => {
             body match {
