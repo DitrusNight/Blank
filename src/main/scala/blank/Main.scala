@@ -24,7 +24,7 @@ object Main {
     val newAST = typeAnalyzer.convertTypes(Map(), ast, (exp) => exp);
     println(newAST.toString);
 
-    val ir = IR.convertASTToIR(IR.generateName(), newAST, Map(), (varName) => IREOF());
+    val ir = IR.convertASTToIR(newAST, Map(), Map(), (varName, bindings) => IREOF());
     println(ir.toString);
 
     val optIr = IROpt1.performOptimizations(ir);
@@ -32,7 +32,7 @@ object Main {
 
     LLVM.context = LLVM.context ++ List("");
     LLVM.initClasses();
-    LLVM.convertTopLevelLLVM(optIr, IRTypes.vmtMap.map((elem) => (elem._1 + "$_vmt") -> (IRValPtr(IRVmt(elem._1)), "@" + elem._1 + "$_vmt")));
+    LLVM.convertTopLevelLLVM(optIr, IRTypes.vmtMap.map((elem) => (elem._1 + "$_vmt") -> BindingData(IRVmt(elem._1), "@" + elem._1 + "$_vmt")));
     println(LLVM.context.mkString("\n"));
 
     val outFile = new File("./out/out.ll");

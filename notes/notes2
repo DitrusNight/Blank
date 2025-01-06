@@ -1,0 +1,87 @@
+First: Continuations
+- Function call return continuations happen after the effects of a function call occur.
+- These continuations are only ran once.
+- If the effects of a function call are known, optimizations can be done between the outer and inner statements.
+
+- If statements are only ran once. Either branch is ran zero or one time.
+- Aswell, no operations are performed that yield side effects.
+- As such optimizations can be done.
+- However, operations should not be hoisted unless done by both branches.
+
+- While loops are ran many times (or no times).
+- It is possible to run no times, so hoisting might be questionable, but the possibility of running more than once makes it better to hoist usually.
+- As such, operations should be hoisted if possible.
+- However, the operation must be independent of the side effects of the function.
+
+Second: Memory relations
+- Items that are accessible in a specific function include:
+	- Global variables
+	- All items global variables are related to.
+	- Function arguments
+	- All items function arguments are related to.
+- What does "related to" mean?
+	- Whenever a reference is stored inside another reference the reference is related to the item it is stored onto.
+	- The source of the relation should be known, such that when it is disconnected, it won't be maintained.
+	- It should be a bidirectional graph.
+
+Third: Optimizations
+- Whenever a memory allocation occurs once in a function, it can be hoisted to above the function, if that provides benefit. 
+	- There is a cost to doing this, being that you have to pass the reference to the function. However, if it returns an allocation, then it most definitely is better than just heap allocating immediately.
+	- However, this should only be done in cardinality of 1. While loops are impossible, if statement bodies shouldn't be hoisted(?).
+- Whenever a value is set but never read, it should not be set.
+	- Function call must not read the value either!
+- Whenever a value is read and the set value is known, you don't need to read.
+	- Again, cannot be changed by function call or later part of while loop.
+
+Fourth: Native Functions
+- Syntax must exist for non-heap allocated references, because worst case, anything can be stored globally, and hence heap allocation is needed.
+- Perhaps include syntax for function effects
+
+IRLet
+IRVar
+IRAccess
+IRCallF
+IRCallC
+IREOF
+IRIf
+
+RhsIntLit
+RhsFloatLit
+RhsStringLit
+RhsUnitLit
+
+RhsPrim
+RhsDefF
+RhsDefC
+RhsAlloc
+RhsVarDeref
+
+An object has a tree to it. If the tree contains a element of type T, then modifications to the object could modify the element of type T, and vice-versa.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

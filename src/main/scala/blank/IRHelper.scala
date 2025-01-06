@@ -7,11 +7,17 @@ object IRHelper {
       case IRLet(varName, typ, rhs, next) => {
         (freeVariables(rhs) ++ freeVariables(next)) - varName;
       }
+      case IRAccess(varName, typ, root, label, next) => {
+        freeVariables(next) + varName + root
+      }
       case IRCallF(func, cont, args) => {
         args.toSet + cont + func
       }
       case IRCallC(func, args) => {
         args.toSet + func
+      }
+      case IRSet(varName, valueName, next) => {
+        freeVariables(next) + varName + valueName
       }
       case IREOF() => Set()
     }
@@ -20,7 +26,6 @@ object IRHelper {
   def freeVariables(rhs: IRRHS): Set[String] = {
     rhs match {
       case RhsPrim(op, args) => args.toSet
-      case RhsAccess(root, label) => Set(root)
       case RhsDefC(args, body) => {
         freeVariables(body) -- args.map((pair) => pair._1).toSet
       }
@@ -28,14 +33,12 @@ object IRHelper {
         freeVariables(body) -- args.map((pair) => pair._1).toSet
       }
       case RhsDeref(name) => Set(name)
-      case _ => Set()
-    }
-  }
 
-  def hasSideEffects(rhs: IRRHS): Boolean = {
-    rhs match {
-      case RhsPrim("=", args) => true
-      case _ => false
+      case RhsClassAlloc(typ) => Set()
+      case RhsUnitLit() => Set()
+      case RhsIntLit(lit) => Set()
+      case RhsFloatLit(lit) => Set()
+      case RhsStringLit(lit) => Set()
     }
   }
 
@@ -48,6 +51,12 @@ object IRHelper {
         } else {
           IRLet(varName, typ, rename(name, newName, rhs), next)
         }
+      }
+      case IRAccess(varName, typ, root, label, next) => {
+        IRAccess(replace(varName), typ, replace(root), label, rename(name, newName, next))
+      }
+      case IRSet(varName, valueName, next) => {
+        IRSet(replace(varName), replace(valueName), rename(name, newName, next))
       }
       case IRCallC(cont, args) => {
         IRCallC(replace(cont), args.map((str) => replace(str)))
@@ -82,7 +91,6 @@ object IRHelper {
       case RhsPrim(op, args) => {
         RhsPrim(op, replaceList(args))
       }
-      case RhsAccess(root, label) => RhsAccess(replace(root), label)
       case RhsDeref(name) => RhsDeref(replace(name))
 
       // No-ops
@@ -90,7 +98,7 @@ object IRHelper {
       case RhsFloatLit(lit) => rhs
       case RhsUnitLit() => rhs
       case RhsStringLit(lit) => rhs
-      case RhsAlloc(typ) => rhs
+      case RhsClassAlloc(typ) => rhs
     }
   }
 

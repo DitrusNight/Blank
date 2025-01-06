@@ -5,5 +5,6 @@ class Item(x: u8) {
 
 fn main() => {
     let item = Item(1);
-    item.test2() + item.x + item.test()
+    item.x = 2;
+    item.x + item.test() + item.test2()
 };

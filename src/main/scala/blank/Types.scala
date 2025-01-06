@@ -270,6 +270,7 @@ class Types {
                   raiseError(id2, "Unable to set non-modifiable binding: " + label);
                 }
               }
+              case AccessExp(id, root, label) => {}
               case _ => raiseError(id, "Unable to set expression to value.");
             }
             (argTypes(0), argTypes(1)) match {
@@ -376,7 +377,7 @@ class Types {
       case PrimOp(id, op: String, args: List[Expression]) => {
         def convertList(list: List[Expression], cont: (List[Expression]) => Expression): Expression = {
           var newCont = cont;
-          for (arg <- list.reverse) {
+          for (arg <- list) {
             val prevCont = newCont;
             newCont = (exps: List[Expression]) => {
               convertTypes(bindings, arg, (newExp) => {

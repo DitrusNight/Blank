@@ -20,7 +20,24 @@ object IROpt1 {
           case _ => IRLet(varName, typ, rhs, removeID(next, topLevel))
         }
       }
-      case _ => exp
+      case IRVar(varName, typ, rhs, next) => {
+        IRVar(varName, typ, rhs, removeID(next, topLevel))
+      }
+      case IRAccess(varName, typ, root, label, next) => {
+        val freeVars = IRHelper.freeVariables(next);
+        if(!freeVars.contains(varName) && !topLevel) {
+          removeID(next, topLevel)
+        } else {
+          IRAccess(varName, typ, root, label, removeID(next, topLevel))
+        }
+      }
+      case IRSet(varName, valueName, next) => {
+        IRSet(varName, valueName, removeID(next, topLevel))
+      }
+      case IRCallF(func, cont, args) => exp
+      case IRCallC(cont, args) => exp
+      case IRIf(cond, contTrue, contFalse) => exp
+      case IREOF() => exp
     }
   }
 
@@ -28,13 +45,34 @@ object IROpt1 {
     exp match {
       case IRLet(varName, typ, rhs, next) => {
         val freeVars = IRHelper.freeVariables(next);
-        if(!freeVars.contains(varName) && !IRHelper.hasSideEffects(rhs) && !topLevel) {
-          next
+        if(!freeVars.contains(varName) && !topLevel) {
+          removeUnusedBindings(next, topLevel)
         } else {
           IRLet(varName, typ, removeUnusedBindings(rhs), removeUnusedBindings(next, topLevel))
         }
       }
-      case _ => exp
+      case IRVar(varName, typ, rhs, next) => {
+        val freeVars = IRHelper.freeVariables(next);
+        if(!freeVars.contains(varName) && !topLevel) {
+          removeUnusedBindings(next, topLevel)
+        } else {
+          IRVar(varName, typ, removeUnusedBindings(rhs), removeUnusedBindings(next, topLevel))
+        }
+      }
+      case IRAccess(varName, typ, root, label, next) => {
+        val freeVars = IRHelper.freeVariables(next);
+        if(!freeVars.contains(varName) && !topLevel) {
+          removeUnusedBindings(next, topLevel)
+        } else {
+          IRAccess(varName, typ, root, label, removeUnusedBindings(next, topLevel))
+        }
+      }
+      case IRSet(varName, valueName, next) => {
+        IRSet(varName, valueName, removeUnusedBindings(next, topLevel))
+      }
+      case IRCallC(cont, args) => exp
+      case IRCallF(func, cont, args) => exp
+      case IREOF() => exp
     }
   }
 

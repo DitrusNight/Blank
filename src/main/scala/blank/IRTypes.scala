@@ -43,7 +43,7 @@ case class IRF64() extends IRType {
   override def toString: String = "f64";
   override def outputLLVM: String = "f64";
 }
-case class IRValPtr(typ: IRType) extends IRType {
+case class IRVarPtr(typ: IRType) extends IRType {
   override def toString: String = "*" + typ;
   override def outputLLVM: String = typ match {
     case IRFuncPtr(attrs, args, ret) => "ptr"
@@ -76,11 +76,11 @@ case class IRCont(args: List[IRType]) extends IRType {
 }
 case class IRClass(className: String) extends IRType {
   override def toString: String = "class<" + className + ">";
-  override def outputLLVM: String = "%" + IRTypes.classMap(className)._1;
+  override def outputLLVM: String = "%" + IRTypes.classMap(className)._1 + "*";
 }
 case class IRVmt(vmtName: String) extends IRType {
   override def toString: String = "vmt<" + vmtName + ">";
-  override def outputLLVM: String = "%" + IRTypes.vmtMap(vmtName)._1;
+  override def outputLLVM: String = "%" + IRTypes.vmtMap(vmtName)._1 + "*";
 }
 
 
