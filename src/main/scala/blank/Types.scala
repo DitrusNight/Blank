@@ -199,7 +199,7 @@ class Types {
     }
   }
 
-  def inferType(bindings: Map[String, (Boolean, Type)], exp: Expression, requestedName: Option[String] = None): Type = {
+  def inferType(bindings: Map[String, (Boolean, Type)], exp: Expression): Type = {
     exp match {
       case IntLit(id, lit: Int) => {
         if(lit < 0)
@@ -293,7 +293,7 @@ class Types {
         }
       }
       case LetBinding(id, varName: String, typ: Type, rhs: Expression, next: Expression) => {
-        val inferredType = inferType(bindings, rhs, Some(varName));
+        val inferredType = inferType(bindings, rhs);
         val resType = unionType(inferredType, typ, Some(exp));
         inferType(bindings + (varName -> (false, resType)), next)
       }
@@ -343,15 +343,22 @@ class Types {
         val argTypes = args.map((pair) => pair._2);
         FunType(attrs, argTypes, bodyType)
       }
-      case ClassExpression(id, args: List[(String, Type)], map: Map[String, LambdaExpression]) => {
-        val newBindings = bindings ++ args.map((pair) => pair._1 -> (true, pair._2));
+      case ClassExpression(id, className: String, args: List[(String, Type)], map: Map[String, LambdaExpression]) => {
+        val methodMappings = map.map((function) => function._1 -> FunType(function._2.attrs, function._2.args.map((pair) => pair._2), function._2.retType));
+        val argMappings = args.toMap;
+        val classType = ClassType(className, argMappings, methodMappings);
+        val newBindings = bindings ++
+          argMappings.map((pair) => pair._1 -> (true, pair._2)) ++
+          methodMappings.map((pair) => pair._1 -> (false, pair._2)) +
+          ("this" -> (false, classType))
+        ;
         val argTypes = args.map((pair) => pair._2)
         val fields: Map[String, Type] = args.toMap;
         var methods: Map[String, FunType] = Map()
         for(function <- map) {
-          methods = methods + (function._1 -> (inferType(newBindings, function._2) match { case funTyp@FunType(attrs, args, ret) => funTyp }))
+          inferType(newBindings, function._2)
         }
-        FunType(List(), argTypes, ClassType(requestedName match {case Some(name) => name; case None => "WTF"}, fields, methods))
+        FunType(List(), args.map((pair) => pair._2), classType)
       }
     }
   }
@@ -456,15 +463,23 @@ class Types {
           cont(LambdaExpression(id, attrs, args.map((pair) => pair._1 -> followConstraints(pair._2)), followConstraints(retType), newBody))
         });
       }
-      case ClassExpression(id, args: List[(String, Type)], map: Map[String, LambdaExpression]) => {
-        val newBindings = bindings ++ args.map((pair) => pair._1 -> (false, pair._2));
+      case ClassExpression(id, className: String, args: List[(String, Type)], map: Map[String, LambdaExpression]) => {
+        val methodMappings = map.map((function) => function._1 -> FunType(function._2.attrs, function._2.args.map((pair) => pair._2), function._2.retType));
+        val argMappings = args.toMap;
+        val classType = ClassType(className, argMappings, methodMappings);
+        val newBindings = bindings ++
+          argMappings.map((pair) => pair._1 -> (true, pair._2)) ++
+          methodMappings.map((pair) => pair._1 -> (false, pair._2)) +
+          ("this" -> (false, classType))
+        ;
 
-        map.values.foreach((lambda) => {
-          ExpressionDataMap.putType(lambda.id, inferType(newBindings, lambda));
-        })
+        //map.values.map((lambda) => {
+        //  ExpressionDataMap.putType(lambda.id, inferType(newBindings, lambda));
+        //})
         ExpressionDataMap.putType(id, inferType(newBindings, exp));
         cont(ClassExpression(
           id,
+          className,
           args,
           map.map((pair) => (
             pair._1 -> (convertTypes(

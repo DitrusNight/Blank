@@ -3,6 +3,8 @@ package blank
 class ExpressionData(data: TokenData, typ: Type) {
   var tokenData: TokenData = data;
   var typeData: Type = typ;
+
+  override def toString: String = typ.toString;
 }
 
 object ExpressionDataMap {

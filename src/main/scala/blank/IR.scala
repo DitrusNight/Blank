@@ -97,10 +97,11 @@ object IR {
       case FunType(attrs, args, ret) => IRFuncPtr(attrs, args.map(convertType), convertType(ret))
       case ClassType(className, fields, methods) => {
         IRTypes.vmtMap = IRTypes.vmtMap + (className -> (generateName("vmt"), VmtStruct(
-          methods.filter(pair => pair._2.attrs.contains("virtual")).map((pair) => pair._1 -> (
+          methods.filter(pair => pair._2.attrs.contains("virtual")).map((pair) => {pair._1 -> (
+
             convertType(pair._2) match {
               case funcPtr@IRFuncPtr(attrs, args, retTyp) => IRFuncPtr(attrs, IRClass(className) :: args, retTyp)
-            }))
+            })})
         )))
         IRTypes.classMap = IRTypes.classMap + (className -> (generateName("class"), ClassStruct(
           fields.map(pair => pair._1 -> convertType(pair._2)),
@@ -115,11 +116,36 @@ object IR {
         IRClass(className)
       }
       case _ => throw new RuntimeException("Unknown type to translate: " + typ);
+      //case _ => IRUnit() // TODO
     }
   }
 
   private def convertIDToIRType(id: ExpID): IRType = {
     convertType(ExpressionDataMap.getType(id))
+  }
+
+  def getGlobalBindings(exp: Expression): Map[String, IRType] = {
+    exp match {
+      case UnitLit(id) => Map()
+      case IntLit(id, lit) => Map()
+      case FloatLit(id, lit) => Map()
+      case VarName(id, name) => Map()
+      case PrimOp(id, op, args) => Map()
+      case AccessExp(id, root, label) => Map()
+      case FunctionCall(id, function, args) => Map()
+      case LambdaExpression(id, attrs, args, retType, body) => Map()
+      case ClassExpression(id, name, args, methods) => {
+        Map(
+          (name + "$_vmt", IRVmt(name))
+        ) ++ methods.filter((methodMapping) => !methodMapping._2.attrs.contains("virtual"))
+          .map((methodMapping) => (
+            (name + "$" + methodMapping._1) -> IRFuncPtr(methodMapping._2.attrs, IRClass(name) :: methodMapping._2.args.map((pair) => convertType(pair._2)), convertType(methodMapping._2.retType))
+          ))
+      }
+      case VarBinding(id, varName, typ, rhs, next) => getGlobalBindings(rhs) ++ getGlobalBindings(next)
+      case LetBinding(id, varName, typ, rhs, next) => getGlobalBindings(rhs) ++ getGlobalBindings(next)
+      case IfStatement(id, cond, thenBr, elseBr) => Map()
+    }
   }
 
   def convertASTToIR(exp: Expression, bindings: Map[String, IRType], closureContext: Map[String, Expression], cont: (String, Map[String, IRType]) => IRExp, requestedName: String = "", refReqested: Boolean = false): IRExp = {
@@ -138,7 +164,7 @@ object IR {
       }
       case VarName(id, oldName) => {
         closureContext.get(oldName) match {
-          case Some(newExp) => convertASTToIR(newExp, bindings, closureContext, cont)
+          case Some(newExp) => convertASTToIR(newExp, bindings, closureContext, cont, requestedName, refReqested)
           case None => bindings.get(oldName) match {
             case Some(IRVarPtr(typ)) => {
               if (refReqested) {
@@ -154,7 +180,6 @@ object IR {
         }
       }
       case PrimOp(id, op, args) => {
-        println(args);
         val name = generateName("prim");
         if (op == "=") {
           convertASTToIR(args(0), bindings, closureContext, (refName, bindings) => {
@@ -284,7 +309,7 @@ object IR {
           })), cont(name, bindings)
         );
       }
-      case ClassExpression(id, args, map) => {
+      case ClassExpression(id, className, args, map) => {
 
         def reduce(list: List[(String, Type)], ptrName: String, cont: () => IRExp): IRExp = {
           var newCont = cont;
@@ -307,19 +332,13 @@ object IR {
         val classCont = generateName("cont");
 
         val allocName = generateName();
-        val fieldMap = classTyp match {
-          case IRClass(className) => IRTypes.classMap(className)._2.fields
-        };
+        val fieldMap = IRTypes.classMap(className)._2.fields
 
         val vmtPtr = generateName("vmtptr");
-        val vmtTyp = classTyp match {
-          case IRClass(className) => IRVmt(className)
-        }
+        val vmtTyp = IRVmt(className)
 
-        val className = requestedName;
         val closureName = generateName("closure");
         var newCont = (bindings: Map[String, IRType]) => {
-          println(bindings);
           IRLet(className, funcTyp, RhsDefF(classCont, List(), args.map(elem => (elem._1, convertType(elem._2))),
             IRLet(allocName, classTyp, RhsClassAlloc(classTyp),
               IRAccess(vmtPtr, IRVarPtr(vmtTyp), allocName, "_vmt",
@@ -344,17 +363,25 @@ object IR {
 
             ExpressionDataMap.putType(accessId, ExpressionDataMap.getType(accessId) match {
               case FunType(attrs, args, classTyp@ClassType(className, fields, methods)) => {
-                if(fields.contains(argPair._1)) {
-                  fields(argPair._1)
-                } else {
-                  methods(argPair._1)
-                }
+                fields(argPair._1)
               }
             });
 
             (argPair._1 -> (AccessExp(accessId, VarName(varId, closureName), argPair._1)))
           }
-        );
+        ) ++ map.map(
+          (methodMapping) => {
+            val accessId = ExpressionDataMap.cloneID(id);
+
+            ExpressionDataMap.putType(accessId, ExpressionDataMap.getType(accessId) match {
+              case FunType(attrs, args, classTyp@ClassType(className, fields, methods)) => {
+                methods(methodMapping._1)
+              }
+            });
+
+            (methodMapping._1 -> (AccessExp(accessId, VarName(varId, closureName), methodMapping._1)))
+          }
+        ) + ("this" -> VarName(varId, closureName));
 
         for(pair <- map) {
           val contName = generateName("cont");

@@ -165,10 +165,10 @@ object LLVM {
     } else {
       val newName = "%" + generateName();
       (bindings(name).typ, typ) match {
-        case (innerTyp, _) => {
+        /*case (IRVarPtr(innerTyp), _) => {
           addLine("  " + newName + " = load " + innerTyp.outputLLVM + ", " + bindings(name).output);
           accessVar(name, bindings + (name -> BindingData(innerTyp, newName)), typ)
-        }
+        }*/
         case (IRU8(), IRI16()) => addLine("  " + newName + " = zext " + bindings(name)._1.outputLLVM + " " + bindings(name)._2 + " to " + typ);
         case (IRU8(), IRU16()) => addLine("  " + newName + " = zext " + bindings(name)._1.outputLLVM + " " + bindings(name)._2 + " to " + typ);
         case (IRU8(), IRU32()) => addLine("  " + newName + " = zext " + bindings(name)._1.outputLLVM + " " + bindings(name)._2 + " to " + typ);
