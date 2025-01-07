@@ -38,7 +38,7 @@ object Main {
     println("Creating LLVM IR");
     LLVM.context = LLVM.context ++ List("");
     LLVM.initClasses();
-    LLVM.convertTopLevelLLVM(optIr, IRTypes.vmtMap.map((elem) => (elem._1 + "$_vmt") -> BindingData(IRVmt(elem._1), "@" + elem._1 + "$_vmt")));
+    LLVM.convertTopLevelLLVM(optIr, LLVM.getGlobalBindings(optIr));
     println(LLVM.context.mkString("\n"));
 
     println("Outputting LLVM IR");

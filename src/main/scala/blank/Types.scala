@@ -464,8 +464,8 @@ class Types {
         });
       }
       case ClassExpression(id, className: String, args: List[(String, Type)], map: Map[String, LambdaExpression]) => {
-        val methodMappings = map.map((function) => function._1 -> FunType(function._2.attrs, function._2.args.map((pair) => pair._2), function._2.retType));
-        val argMappings = args.toMap;
+        val methodMappings = map.map((function) => function._1 -> FunType(function._2.attrs, function._2.args.map((pair) => followConstraints(pair._2)), followConstraints(function._2.retType)));
+        val argMappings = args.map((pair) => pair._1 -> followConstraints(pair._2)).toMap;
         val classType = ClassType(className, argMappings, methodMappings);
         val newBindings = bindings ++
           argMappings.map((pair) => pair._1 -> (true, pair._2)) ++

@@ -9,17 +9,11 @@ class Item(x: u8) {
         this.x = 2;
         this.test2()
     };
-    fn test5() => {
-        test()
-    };
-    fn test6() => {
-        this.x = 2;
-        this.test()
-    }
 };
 
 fn main() => {
     let item = Item(1);
     item.x = 2;
-    item.x + item.test() + item.test2()
+    item.x + item.test() + item.test2() + item.test4()
 };
+

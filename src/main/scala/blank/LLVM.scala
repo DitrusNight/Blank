@@ -29,6 +29,25 @@ object LLVM {
     }
   }
 
+  def getGlobalBindings(exp: IRExp): Map[String, BindingData] = {
+    IRTypes.vmtMap.map((elem) => (elem._1 + "$_vmt") -> BindingData(IRVmt(elem._1), "@" + elem._1 + "$_vmt"))
+    ++ getExpBindings(exp)
+  }
+
+  def getExpBindings(exp: IRExp): Map[String, BindingData] = {
+    exp match {
+      case IRLet(varName, typ, rhs, next) => {
+        val map1 = rhs match {
+          case RhsDefF(cont, attrs, args, body, retType) => Map(varName -> BindingData(IRFuncPtr(attrs, args.map((pair) => pair._2), retType), "@" + varName))
+          case _ => Map()
+        }
+        map1 ++ getExpBindings(next)
+      }
+      case IRVar(varName, typ, rhs, next) => getExpBindings(next)
+      case _ => Map()
+    }
+  }
+
   /*
   def convertStructTypesExp(bindings: Map[String, IRType], exp: IRExp): Unit = {
     def checkType(typ: IRType): Unit = {
