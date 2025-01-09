@@ -1,19 +1,9 @@
-class Item(x: u8) {
-    virtual fn test() => {
-        x = 5;
-        x
-    };
-    fn test2() => x;
-    fn test3() => test2();
-    fn test4() => {
-        this.x = 2;
-        this.test2()
-    };
+fn test(x) => {
+    x + 10000
 };
 
 fn main() => {
-    let item = Item(1);
-    item.x = 2;
-    item.x + item.test() + item.test2() + item.test4()
+    let y = 1;
+    test(y)
 };
 

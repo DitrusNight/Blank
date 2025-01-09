@@ -19,13 +19,39 @@ object Main {
     val typeAnalyzer = new Types();
     typeAnalyzer.populateArithmeticTypes();
 
-    //println(ast.toString);
+    println(ast.toString);
     println("Inferring Types");
     typeAnalyzer.inferType(Map(), ast);
     println("Converting Types");
-
     val newAST = typeAnalyzer.convertTypes(Map(), ast, (exp) => exp);
     println(newAST.toString);
+    println(ExpressionDataMap.map);
+
+    def getIDs(expression: Expression): Unit = {
+      println(expression.toString + ": " + expression.getID)
+      expression match {
+        case PrimOp(id, op, args) => args.foreach(getIDs)
+        case AccessExp(id, root, label) => getIDs(root)
+        case FunctionCall(id, function, args) => {
+          getIDs(function); args.foreach(getIDs)
+        }
+        case IfStatement(id, cond, thenBr, elseBr) => {
+          getIDs(cond);
+          getIDs(thenBr);
+          getIDs(elseBr)
+        }
+        case LetBinding(id, varName, typ, rhs, next) => {
+          getIDs(rhs); getIDs(next)
+        }
+        case VarBinding(id, varName, typ, rhs, next) => {
+          getIDs(rhs); getIDs(next)
+        }
+        case ClassExpression(id, name, args, methods) => methods.values.foreach(getIDs)
+        case LambdaExpression(id, attrs, args, retType, body) => getIDs(body)
+        case _ => ()
+      }
+    }
+    getIDs(ast)
 
     println("Converting to IR");
     val ir = IR.convertASTToIR(newAST, IR.getGlobalBindings(newAST), Map(), (varName, bindings) => IREOF());

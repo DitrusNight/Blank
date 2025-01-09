@@ -302,7 +302,7 @@ object IR {
         val name = requestedName; //generateName("lambda");
         val contName = generateName("cont");
         IRLet(name, IRFuncPtr(attrs, args.map(elem => convertType(elem._2)), convertType(retType)), RhsDefF(contName, attrs, args.map(elem => (elem._1, convertType(elem._2))),
-          convertASTToIR(body, bindings, closureContext -- args.map((pair) => pair._1), (resName: String, bindings) =>
+          convertASTToIR(body, bindings ++ args.map((pair) => pair._1 -> convertType(pair._2)), closureContext -- args.map((pair) => pair._1), (resName: String, bindings) =>
             IRCallC(contName, List(resName))
           ), convertType(ExpressionDataMap.getType(id) match {
             case FunType(attrs, args, ret) => ret

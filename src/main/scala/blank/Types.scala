@@ -26,6 +26,9 @@ case class ClassType(className: String, fields: Map[String, Type], methods: Map[
 case class FunType(attrs: List[String], args: List[Type], ret: Type) extends Type {
   override def toString: String = attrs.map(attr => "@" + attr + " ").mkString + "(" + args.mkString(", ") + ") => " + ret;
 }
+case class ArithUnionType(minimum: BaseType, syms: Set[TypeVar]) extends Type {
+  override def toString: String = minimum.toString + " | (" + syms.mkString(",") + ")";
+}
 
 class Types {
 
@@ -82,12 +85,25 @@ class Types {
     }
   }
 
-  def followConstraintsFun(typ: FunType, path: Set[String]): FunType = {
+  private def followConstraintsFun(typ: FunType, path: Set[String]): FunType = {
     FunType(
       typ.attrs,
       typ.args.map((elem) => followConstraints(elem, path)),
       followConstraints(typ.ret, path)
     )
+  }
+
+  private def unionArithUnion(aut1: ArithUnionType, aut2: ArithUnionType): ArithUnionType = {
+    val min = if(aut2.minimum == BaseType("")) {
+      aut1.minimum
+    } else if (getSubtypes(Set(aut1.minimum)).contains(aut2.minimum)) {
+      aut1.minimum
+    } else if (getSubtypes(Set(aut2.minimum)).contains(aut1.minimum)) {
+      aut2.minimum
+    } else {
+        throw new RuntimeException("Unable to intersect types " + aut1.minimum + " and " + aut2.minimum)
+    }
+    ArithUnionType(min, aut1.syms ++ aut2.syms)
   }
 
   def followConstraints(typ: Type, path: Set[String] = Set()): Type = {
@@ -111,6 +127,29 @@ class Types {
         )
       case FunType(attrs, args, ret) => {
         followConstraintsFun(FunType(attrs, args, ret), path)
+      }
+      case aut@ArithUnionType(minimum, typeVars) => {
+        var newAUT: ArithUnionType = ArithUnionType(minimum, Set());
+        for(typeVar <- typeVars) {
+          val trueType = followConstraints(typeVar, path);
+          println(typeVar.toString + " " + trueType);
+          trueType match {
+            case base@BaseType(name) => {
+              newAUT = unionArithUnion(newAUT, ArithUnionType(base, Set()))
+            }
+            case typeVar@TypeVar(name) => {
+              newAUT = unionArithUnion(newAUT, ArithUnionType(BaseType(""), Set(typeVar)))
+            }
+            case aut@ArithUnionType(minimum2, syms) => {
+              newAUT = unionArithUnion(newAUT, aut)
+            }
+            case _ => throw new RuntimeException("Unable to follow constraints of arithmetic type yielding " + trueType);
+          }
+        }
+        if(newAUT.syms.isEmpty)
+          newAUT.minimum
+        else
+          newAUT
       }
       case _ => typ
     }
@@ -225,17 +264,32 @@ class Types {
           case "id" => argTypes(0)
           case "-" | "+" | "*" | "/" => {
             // TODO: Include type vars.
-            (argTypes(0), argTypes(1)) match {
-              case (TypeVar(x), _) => {
-                unionType(argTypes(0), BaseType("i64"), Some(exp));
-                BaseType("i64")
+            val trueType1 = followConstraints(argTypes(0))
+            val trueType2 = followConstraints(argTypes(1))
+            (trueType1, trueType2) match {
+              case (varTyp@TypeVar(x), base@BaseType(name)) => {
+                ArithUnionType(base, Set(varTyp))
               }
-              case (_, TypeVar(y)) => {
-                unionType(BaseType("i64"), argTypes(1), Some(exp));
-                BaseType("i64")
+              case (base@BaseType(name), varTyp@TypeVar(y)) => {
+                ArithUnionType(base, Set(varTyp))
+              }
+              case (aut@ArithUnionType(_, _), base@BaseType(name)) => {
+                unionArithUnion(aut, ArithUnionType(base, Set()))
+              }
+              case (base@BaseType(name), aut@ArithUnionType(_, _)) => {
+                unionArithUnion(aut, ArithUnionType(base, Set()))
+              }
+              case (aut@ArithUnionType(_, _), varTyp@TypeVar(name)) => {
+                unionArithUnion(aut, ArithUnionType(BaseType(""), Set(varTyp)))
+              }
+              case (varTyp@TypeVar(name), aut@ArithUnionType(_, _)) => {
+                unionArithUnion(aut, ArithUnionType(BaseType(""), Set(varTyp)))
+              }
+              case (aut1@ArithUnionType(_, _), aut2@ArithUnionType(_, _)) => {
+                unionArithUnion(aut1, aut2)
               }
               case (_, _) => {
-                arithmeticMap.get((argTypes(0), argTypes(1))) match {
+                arithmeticMap.get((trueType1, trueType2)) match {
                   case Some(resType: Type) => resType
                   case _ =>
                     raiseError(id, "Unable to conform arithmetic arguments to numbers"); UnitType()
