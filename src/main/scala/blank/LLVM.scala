@@ -18,6 +18,34 @@ object LLVM {
     context = context ++ List(str);
   }
 
+  def convertIRProgram(program: IRProgram): Unit = {
+    initClasses();
+    var bindings: Map[String, BindingData] = Map();
+    for(className <- IRTypes.vmtMap.keys) {
+      bindings = bindings + ((className + "$_vmt") -> BindingData(IRVmt(className), "@" + className + "$_vmt"))
+    }
+    program.methods.foreach((methodPair) => {
+      val methodName = methodPair._1;
+      val method = methodPair._2;
+      method.retTyp match {
+        case IRClass(className) =>
+        case _ => ()
+      }
+      bindings = bindings + (methodName -> BindingData(IRFuncPtr(method.args.map((pair) => pair._2), method.retTyp), "@" + methodName))
+    })
+    program.methods.foreach((methodPair) => {
+      val methodName = methodPair._1;
+      val method = methodPair._2;
+      val newBindings = bindings + (method.cont -> BindingData(IRCont(List(method.retTyp)), "~~UNUSED~~")) ++ method.args.map(pair => (pair._1 -> BindingData(pair._2, "%" + pair._1)));
+      addLine("define " + method.retTyp.outputLLVM + " @" + methodName + "(" + method.args.map((arg) => "" + arg._2.outputLLVM + " %" + arg._1).mkString(", ") + ") {");
+
+      convertIRToLLVM(method.body, newBindings, method.cont);
+
+      addLine("}");
+      addLine("");
+    })
+  }
+
   def initClasses(): Unit = {
     for(className <- IRTypes.classMap.keySet) {
       val vmtStruct = IRTypes.vmtMap(className)._2;
@@ -29,82 +57,8 @@ object LLVM {
     }
   }
 
-  def getGlobalBindings(exp: IRExp): Map[String, BindingData] = {
-    IRTypes.vmtMap.map((elem) => (elem._1 + "$_vmt") -> BindingData(IRVmt(elem._1), "@" + elem._1 + "$_vmt"))
-    ++ getExpBindings(exp)
-  }
-
-  def getExpBindings(exp: IRExp): Map[String, BindingData] = {
-    exp match {
-      case IRLet(varName, typ, rhs, next) => {
-        val map1 = rhs match {
-          case RhsDefF(cont, attrs, args, body, retType) => Map(varName -> BindingData(IRFuncPtr(attrs, args.map((pair) => pair._2), retType), "@" + varName))
-          case _ => Map()
-        }
-        map1 ++ getExpBindings(next)
-      }
-      case IRVar(varName, typ, rhs, next) => getExpBindings(next)
-      case _ => Map()
-    }
-  }
-
-  /*
-  def convertStructTypesExp(bindings: Map[String, IRType], exp: IRExp): Unit = {
-    def checkType(typ: IRType): Unit = {
-      typ match {
-        case struct@IRStruct(className, map) =>
-          if(!structTypes.keySet.toList.contains(struct)) {
-            val name = "%" + generateName("struct.");
-            structTypes = structTypes + (struct -> name)
-            addLine(name + " = type " + struct.outputLLVM);
-          }
-        case _ => ()
-      }
-    }
-    def convertStructTypesRhs(bindings: Map[String, IRType], exp: IRRHS): Unit = {
-      exp match {
-        case RhsDefF(cont, attrs, args, body, retTyp) =>
-          args.foreach((elem) => checkType(elem._2));
-          checkType(retTyp);
-          convertStructTypesExp(bindings ++ args, body);
-        case RhsDefC(args, body) =>
-          args.foreach((elem) => checkType(elem._2));
-          convertStructTypesExp(bindings ++ args, body);
-        case RhsAccess(root, label) =>
-          bindings(root) match {
-            case IRValPtr(typ) => checkType(typ)
-          }
-        case _ => ()
-      }
-    }
-    exp match {
-      case IRLet(varName, typ, rhs, next) =>
-        convertStructTypesRhs(bindings, rhs);
-        checkType(typ);
-        convertStructTypesExp(bindings + (varName -> typ), next)
-      case _ => ()
-    }
-  }
-  */
-
   def generateName(prefix: String = "name"): String = {
     prefix + uniqInd()
-  }
-
-  def convertTopLevelLLVM(ir: IRExp, bindings: Map[String, BindingData]): Unit = {
-    ir match {
-      case IRLet(varName, typ, rhs, next) =>
-        rhs match {
-          case RhsDefF(cont, _, _, _, retTyp) => {
-            val newBindings = convertRhsToLLVM(rhs, varName, typ, bindings, cont);
-            convertTopLevelLLVM(next, newBindings)
-          }
-          case _ => {
-            convertTopLevelLLVM(next, bindings)
-          }
-        }
-      case IREOF() => ()
-    }
   }
 
   def convertIRToLLVM(
@@ -273,18 +227,6 @@ object LLVM {
         // %4 = call i8* @malloc(i64 %3)
         addLine("  %" + varName + " = call ptr @malloc(i64 " + sizeInt + ")");
         bindings + (varName -> BindingData(typ, "%" + varName))
-      }
-      case RhsDefF(cont, attrs, args, body, retTyp) => {
-        addLine("define " + retTyp.outputLLVM + " @" + varName + "(" + args.map((arg) => "" + arg._2.outputLLVM + " %" + arg._1).mkString(", ") + ") {");
-        // Make new bindings.
-        var newBindings = bindings + (cont -> BindingData(IRCont(List(retTyp)), "~INVALID. USED CONT~"));
-        for(arg <- args) {
-          newBindings = newBindings + (arg._1 -> BindingData(arg._2, "%" + arg._1));
-        }
-        convertIRToLLVM(body, newBindings, cont);
-        addLine("}");
-        addLine("");
-        bindings + (varName -> BindingData(IRFuncPtr(attrs, args.map(elem => elem._2), retTyp), "@" + varName))
       }
       case RhsDefC(args, contBody) => {
         val next = generateName("next");

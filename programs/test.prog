@@ -1,9 +1,5 @@
-fn test(x) => {
-    x + 10000
-};
-
 fn main() => {
     let y = 1;
-    test(y)
+    let func = (x) => x + 5;
+    func(y)
 };
-

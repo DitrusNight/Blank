@@ -132,7 +132,6 @@ class Types {
         var newAUT: ArithUnionType = ArithUnionType(minimum, Set());
         for(typeVar <- typeVars) {
           val trueType = followConstraints(typeVar, path);
-          println(typeVar.toString + " " + trueType);
           trueType match {
             case base@BaseType(name) => {
               newAUT = unionArithUnion(newAUT, ArithUnionType(base, Set()))

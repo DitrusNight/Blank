@@ -46,11 +46,11 @@ case class IRF64() extends IRType {
 case class IRVarPtr(typ: IRType) extends IRType {
   override def toString: String = "*" + typ;
   override def outputLLVM: String = typ match {
-    case IRFuncPtr(attrs, args, ret) => "ptr"
+    case IRFuncPtr(args, ret) => "ptr"
     case _ => typ.outputLLVM + "*"
   };
 }
-case class IRFuncPtr(attrs: List[String], args: List[IRType], ret: IRType) extends IRType {
+case class IRFuncPtr(args: List[IRType], ret: IRType) extends IRType {
   override def toString: String = /*attrs.map(attr => "@" + attr + " ").mkString +*/ "f(" + args.mkString(", ") + ") => " + ret;
   override def outputLLVM: String = "ptr";
 }
