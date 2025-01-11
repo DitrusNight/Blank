@@ -19,7 +19,7 @@ object LLVM {
   }
 
   def convertIRProgram(program: IRProgram): Unit = {
-    initClasses();
+    initGlobalItems();
     var bindings: Map[String, BindingData] = Map();
     for(className <- IRTypes.vmtMap.keys) {
       bindings = bindings + ((className + "$_vmt") -> BindingData(IRVmt(className), "@" + className + "$_vmt"))
@@ -46,7 +46,7 @@ object LLVM {
     })
   }
 
-  def initClasses(): Unit = {
+  def initGlobalItems(): Unit = {
     for(className <- IRTypes.classMap.keySet) {
       val vmtStruct = IRTypes.vmtMap(className)._2;
       val classStruct = IRTypes.classMap(className)._2;
@@ -54,6 +54,10 @@ object LLVM {
       addLine("%" + IRTypes.classMap(className)._1 + " = type { " + IRVarPtr(IRVmt(className)).outputLLVM + ", " + classStruct.fields.values.map((elem) => elem.outputLLVM).mkString(", ") + " }");
       addLine("@" + className + "$_vmt = constant %" + IRTypes.vmtMap(className)._1 + " { " + vmtStruct.methods.map((pair) => "ptr @" + className + "$" + pair._1).mkString(", ") + " }");
       addLine("");
+    }
+    for(funcName <- IRTypes.funcMap.keySet) {
+      val funcStruct = IRTypes.funcMap(funcName)
+      addLine("%" + funcName + " = type { ptr" + funcStruct.vars.values.map((elem) => ", " + elem.outputLLVM).mkString + " }");
     }
   }
 
@@ -91,6 +95,9 @@ object LLVM {
             IRTypes.classMap(className)._2.fields.keys.toList.indexOf(label) + 1
           }
           case IRVmt(className) => IRTypes.vmtMap(className)._2.methods.keys.toList.indexOf(label)
+          case IRWrappedFunc(funcName) => if(label == "_func") 0 else {
+            IRTypes.funcMap(funcName).vars.keys.toList.indexOf(label) + 1
+          }
         }));
         val newBindings = bindings + (varName -> BindingData(innerTyp, "%" + varName))
         val newnewBindings = convertIRToLLVM(next, newBindings, retCont);
@@ -225,6 +232,18 @@ object LLVM {
         addLine("  " + sizePtr + " = getelementptr " + typ.outputLLVM + ", ptr null, i32 1");
         addLine("  " + sizeInt + " = ptrtoint " + typ.outputLLVM + " " + sizePtr + " to i64");
         // %4 = call i8* @malloc(i64 %3)
+        addLine("  %" + varName + " = call ptr @malloc(i64 " + sizeInt + ")");
+        bindings + (varName -> BindingData(typ, "%" + varName))
+      }
+      case RhsFuncAlloc(func, map) => {
+        val funcName = typ match { case IRWrappedFunc(funcName) => funcName};
+        val structName = "%" + funcName;
+        val sizePtr = "%" + generateName("sizePtr");
+        val sizeInt = "%" + generateName("sizeInt");
+
+        addLine("  " + sizePtr + " = getelementptr " + typ.outputLLVM + ", ptr null, i32 1");
+        addLine("  " + sizeInt + " = ptrtoint " + typ.outputLLVM + " " + sizePtr + " to i64");
+
         addLine("  %" + varName + " = call ptr @malloc(i64 " + sizeInt + ")");
         bindings + (varName -> BindingData(typ, "%" + varName))
       }

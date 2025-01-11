@@ -1,5 +1,8 @@
 fn main() => {
     let y = 1;
-    let func = (x) => x + 5;
-    func(y)
+    let func = (x) => {
+        y + x
+    };
+    func(5)
 };
+

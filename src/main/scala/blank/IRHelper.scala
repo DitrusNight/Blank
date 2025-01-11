@@ -34,6 +34,7 @@ object IRHelper {
       }*/
       case RhsDeref(name) => Set(name)
 
+      case RhsFuncAlloc(func, map) => Set()
       case RhsClassAlloc(typ) => Set()
       case RhsUnitLit() => Set()
       case RhsIntLit(lit) => Set()
@@ -99,6 +100,7 @@ object IRHelper {
       case RhsUnitLit() => rhs
       case RhsStringLit(lit) => rhs
       case RhsClassAlloc(typ) => rhs
+      case RhsFuncAlloc(func, map) => rhs
     }
   }
 

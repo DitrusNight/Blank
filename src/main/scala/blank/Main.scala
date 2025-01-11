@@ -28,7 +28,7 @@ object Main {
 
     println("Converting to IR");
     val program = IRProgram();
-    IR.convertTopLevel(newAST)(IR.getGlobalBindings(newAST), program);
+    IR.convertTopLevel(newAST)(IR.getGlobalBindings(newAST), Map(), program);
     println(program.toString);
 
     println("Optimizing IR");

@@ -82,6 +82,10 @@ case class IRVmt(vmtName: String) extends IRType {
   override def toString: String = "vmt<" + vmtName + ">";
   override def outputLLVM: String = "%" + IRTypes.vmtMap(vmtName)._1 + "*";
 }
+case class IRWrappedFunc(funcName: String) extends IRType {
+  override def toString: String = "func<" + funcName + ">";
+  override def outputLLVM: String = "%" + funcName + "*";
+}
 
 
 case class ClassStruct(fields: Map[String, IRType], methods: Map[String, IRFuncPtr], vmt: IRVmt) {
@@ -90,11 +94,15 @@ case class ClassStruct(fields: Map[String, IRType], methods: Map[String, IRFuncP
 case class VmtStruct(methods: Map[String, IRFuncPtr]) {
   override def toString: String = "";
 }
+case class FuncStruct(func: IRFuncPtr, vars: Map[String, IRType]) {
+  override def toString: String = "";
+}
 
 object IRTypes {
 
   var classMap: Map[String, (String, ClassStruct)] = Map();
   var vmtMap: Map[String, (String, VmtStruct)] = Map();
 
+  var funcMap: Map[String, FuncStruct] = Map();
 
 }
