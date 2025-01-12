@@ -75,6 +75,13 @@ object LLVM {
         val newBindings = convertRhsToLLVM(rhs, varName, typ, bindings, retCont);
         val newnewBindings = convertIRToLLVM(next, newBindings, retCont);
         newnewBindings
+      case IRVar(varName, typ, rhs, next) =>
+        addLine("  %" + varName + " = alloca " + typ.outputLLVM);
+        val rhsName = generateName("rhs");
+        val newBindings = bindings + (varName -> BindingData(typ, "%" + varName))
+        val rhsBindings = convertRhsToLLVM(rhs, rhsName, typ, bindings, retCont);
+        addLine("  store " + rhsBindings(rhsName).output + ", " + newBindings(varName).output);
+        convertIRToLLVM(next, newBindings, retCont)
       case IRCallC(cont, List(varName)) => {
         if(retCont == cont) {
           val typ = bindings(retCont).typ match { case IRCont(List(argType)) => argType };
@@ -98,6 +105,7 @@ object LLVM {
           case IRWrappedFunc(funcName) => if(label == "_func") 0 else {
             IRTypes.funcMap(funcName).vars.keys.toList.indexOf(label) + 1
           }
+          case IRFuncPtr(args, ret) => 0
         }));
         val newBindings = bindings + (varName -> BindingData(innerTyp, "%" + varName))
         val newnewBindings = convertIRToLLVM(next, newBindings, retCont);
@@ -143,12 +151,13 @@ object LLVM {
     if(bindings(name).typ == typ) {
       bindings(name).varName
     } else {
-      val newName = "%" + generateName();
+      var newName = "%" + generateName();
       (bindings(name).typ, typ) match {
         /*case (IRVarPtr(innerTyp), _) => {
           addLine("  " + newName + " = load " + innerTyp.outputLLVM + ", " + bindings(name).output);
           accessVar(name, bindings + (name -> BindingData(innerTyp, newName)), typ)
         }*/
+        case (IRWrappedFunc(funcName), IRFuncPtr(args, ret)) => newName = bindings(name)._2
         case (IRU8(), IRI16()) => addLine("  " + newName + " = zext " + bindings(name)._1.outputLLVM + " " + bindings(name)._2 + " to " + typ.outputLLVM);
         case (IRU8(), IRU16()) => addLine("  " + newName + " = zext " + bindings(name)._1.outputLLVM + " " + bindings(name)._2 + " to " + typ.outputLLVM);
         case (IRU8(), IRU32()) => addLine("  " + newName + " = zext " + bindings(name)._1.outputLLVM + " " + bindings(name)._2 + " to " + typ.outputLLVM);
@@ -193,6 +202,8 @@ object LLVM {
       }
       case RhsPrim(op, args) => {
         op match {
+          case "id" =>
+            bindings + (varName -> bindings(args(0)))
           case "+" =>
             addLine("  %" + varName + " = add " + typ.outputLLVM + " " + args.map((elem) => accessVar(elem, bindings, typ)).mkString(", "));
             bindings + (varName -> BindingData(typ, "%" + varName))

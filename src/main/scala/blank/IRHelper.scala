@@ -7,6 +7,9 @@ object IRHelper {
       case IRLet(varName, typ, rhs, next) => {
         (freeVariables(rhs) ++ freeVariables(next)) - varName;
       }
+      case IRVar(varName, typ, rhs, next) => {
+        (freeVariables(rhs) ++ freeVariables(next)) - varName;
+      }
       case IRAccess(varName, typ, root, label, next) => {
         freeVariables(next) + varName + root
       }

@@ -224,27 +224,30 @@ object IR {
         IRLet(name, IRUnit(), RhsUnitLit(), cont(name, bindings))
       }
       case VarName(id, oldName) => {
-        closureCtx.get(oldName) match {
-          case Some(value) => {
-            value(cont)
-          }
-          case None => {
-            bindings.get(oldName) match {
-              case Some(IRVarPtr(typ)) => {
-                if (refReqested) {
-                  cont(oldName, bindings)
-                } else {
-                  val name = generateName("deref")
-                  IRLet(name, typ, RhsDeref(oldName), cont(name, bindings))
-                }
-              }
-              case Some(typ) => cont(oldName, bindings)
-              case None => {
-                println(bindings)
-                ErrorHandler.raiseError(id, "Unknown variable: " + oldName);
-                cont("", bindings)
+        val varNameCont = (oldName: String, bindings: Map[String, IRType]) => {
+          bindings.get(oldName) match {
+            case Some(IRVarPtr(typ)) => {
+              if (refReqested) {
+                cont(oldName, bindings)
+              } else {
+                val name = generateName("deref")
+                IRLet(name, typ, RhsDeref(oldName), cont(name, bindings))
               }
             }
+            case Some(typ) => cont(oldName, bindings)
+            case None => {
+              println(bindings)
+              ErrorHandler.raiseError(id, "Unknown variable: " + oldName);
+              cont("", bindings)
+            }
+          }
+        }
+        closureCtx.get(oldName) match {
+          case Some(closureWrapper) => {
+            closureWrapper(varNameCont)
+          }
+          case None => {
+            varNameCont(oldName, bindings)
           }
         }
 
@@ -411,7 +414,7 @@ object IR {
                     val varName = generateName("val")
                     IRAccess(accessName, IRVarPtr(typ), "_wrapper", head,
                       IRLet(varName, typ, RhsDeref(accessName),
-                        cont(varName, bindings)
+                        cont(varName, bindings + (varName -> typ))
                       )
                     )
                   }))
