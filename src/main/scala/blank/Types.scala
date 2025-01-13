@@ -334,11 +334,14 @@ class Types {
                 unionType(argTypes(0), argTypes(1), Some(exp))
               }
               case (_, _) => {
-                arithmeticMap.get((argTypes(0), argTypes(1))) match {
-                  case Some(resType: Type) => resType
-                  case _ =>
-                    raiseError(id, "Unable to conform arithmetic arguments to numbers"); UnitType()
-                }
+                if(argTypes(0) == argTypes(1))
+                  argTypes(0)
+                else
+                  arithmeticMap.get((argTypes(0), argTypes(1))) match {
+                    case Some(resType: Type) => resType
+                    case _ =>
+                      raiseError(id, "Unable to conform arithmetic arguments to numbers"); UnitType()
+                  }
               }
             }
           }

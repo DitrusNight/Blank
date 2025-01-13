@@ -43,8 +43,15 @@ case class IRF64() extends IRType {
   override def toString: String = "f64";
   override def outputLLVM: String = "f64";
 }
-case class IRVarPtr(typ: IRType) extends IRType {
-  override def toString: String = "*" + typ;
+case class IRVarPtr(typ: IRType, lifetime: IRLifetime) extends IRType {
+  override def toString: String = "Var[" + typ + "]" + lifetime;
+  override def outputLLVM: String = typ match {
+    case IRFuncPtr(args, ret) => "ptr"
+    case _ => typ.outputLLVM + "*"
+  };
+}
+case class IRAccessPtr(typ: IRType, lifetime: IRLifetime) extends IRType {
+  override def toString: String = "Ptr[" + typ + "]" + lifetime;
   override def outputLLVM: String = typ match {
     case IRFuncPtr(args, ret) => "ptr"
     case _ => typ.outputLLVM + "*"
@@ -74,19 +81,22 @@ case class IRCont(args: List[IRType]) extends IRType {
   override def toString: String = "c(" + args.mkString(", ") + ")";
   override def outputLLVM: String = "label";
 }
-case class IRClass(className: String) extends IRType {
-  override def toString: String = "class<" + className + ">";
+case class IRClass(className: String, lifetime: IRLifetime) extends IRType {
+  override def toString: String = "class<" + className + ">" + lifetime;
   override def outputLLVM: String = "%" + IRTypes.classMap(className)._1 + "*";
 }
 case class IRVmt(vmtName: String) extends IRType {
   override def toString: String = "vmt<" + vmtName + ">";
   override def outputLLVM: String = "%" + IRTypes.vmtMap(vmtName)._1 + "*";
 }
-case class IRWrappedFunc(funcName: String) extends IRType {
-  override def toString: String = "func<" + funcName + ">";
+case class IRWrappedFunc(funcName: String, lifetime: IRLifetime) extends IRType {
+  override def toString: String = "func<" + funcName + ">" + lifetime;
   override def outputLLVM: String = "%" + funcName + "*";
 }
 
+class IRLifetime(id: Integer) {
+  override def toString: String = "@L" + id;
+}
 
 case class ClassStruct(fields: Map[String, IRType], methods: Map[String, IRFuncPtr], vmt: IRVmt) {
   override def toString: String = "";

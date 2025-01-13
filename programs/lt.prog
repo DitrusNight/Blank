@@ -1,0 +1,8 @@
+class Item() {};
+
+fn main() => {
+    var y = Item();
+    y = Item();
+    y
+};
+

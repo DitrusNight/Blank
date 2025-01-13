@@ -56,6 +56,13 @@ object IRHelper {
           IRLet(varName, typ, rename(name, newName, rhs), next)
         }
       }
+      case IRVar(varName, typ, rhs, next) => {
+        if(varName != name) {
+          IRLet(varName, typ, rename(name, newName, rhs), rename(name, newName, next))
+        } else {
+          IRLet(varName, typ, rename(name, newName, rhs), next)
+        }
+      }
       case IRAccess(varName, typ, root, label, next) => {
         IRAccess(replace(varName), typ, replace(root), label, rename(name, newName, next))
       }

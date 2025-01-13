@@ -28,7 +28,7 @@ object LLVM {
       val methodName = methodPair._1;
       val method = methodPair._2;
       method.retTyp match {
-        case IRClass(className) =>
+        case IRClass(className, lt) =>
         case _ => ()
       }
       bindings = bindings + (methodName -> BindingData(IRFuncPtr(method.args.map((pair) => pair._2), method.retTyp), "@" + methodName))
@@ -51,7 +51,7 @@ object LLVM {
       val vmtStruct = IRTypes.vmtMap(className)._2;
       val classStruct = IRTypes.classMap(className)._2;
       addLine("%" + IRTypes.vmtMap(className)._1 + " = type { " + vmtStruct.methods.values.map((elem) => elem.outputLLVM).mkString(", ") + " }");
-      addLine("%" + IRTypes.classMap(className)._1 + " = type { " + IRVarPtr(IRVmt(className)).outputLLVM + ", " + classStruct.fields.values.map((elem) => elem.outputLLVM).mkString(", ") + " }");
+      addLine("%" + IRTypes.classMap(className)._1 + " = type { " + IRVarPtr(IRVmt(className), IRLifetime(0)).outputLLVM + classStruct.fields.values.map((elem) => ", " + elem.outputLLVM).mkString + " }");
       addLine("@" + className + "$_vmt = constant %" + IRTypes.vmtMap(className)._1 + " { " + vmtStruct.methods.map((pair) => "ptr @" + className + "$" + pair._1).mkString(", ") + " }");
       addLine("");
     }
@@ -98,11 +98,11 @@ object LLVM {
         val structTyp = bindings(root).typ
         val innerTyp = typ
         addLine("  %" + varName + " = getelementptr inbounds " + innerTyp.outputLLVM + ", ptr " + accessVar(root, bindings, structTyp) + ", i32 " + (structTyp match {
-          case IRClass(className) => if(label == "_vmt") 0 else {
+          case IRClass(className, lt) => if(label == "_vmt") 0 else {
             IRTypes.classMap(className)._2.fields.keys.toList.indexOf(label) + 1
           }
           case IRVmt(className) => IRTypes.vmtMap(className)._2.methods.keys.toList.indexOf(label)
-          case IRWrappedFunc(funcName) => if(label == "_func") 0 else {
+          case IRWrappedFunc(funcName, lt) => if(label == "_func") 0 else {
             IRTypes.funcMap(funcName).vars.keys.toList.indexOf(label) + 1
           }
           case IRFuncPtr(args, ret) => 0
@@ -135,7 +135,8 @@ object LLVM {
       case IRSet(varName, valueName, next) => {
         val typ = bindings(varName).typ;
         val innerTyp = typ match {
-          case IRVarPtr(typ) => typ
+          case IRVarPtr(typ, lt) => typ
+          case IRAccessPtr(typ, lt) => typ
         };
         val newValueName = accessVar(valueName, bindings, innerTyp);
         addLine("  store " + innerTyp.outputLLVM + " " + newValueName + ", " + bindings(varName).output)
@@ -147,8 +148,20 @@ object LLVM {
     }
   }
 
+  def areTypesSame(typ1: IRType, typ2: IRType): Boolean = {
+    (typ1, typ2) match {
+      case (IRClass(className1, _), IRClass(className2, _)) => className1 == className2
+      case (IRVmt(className1), IRVmt(className2)) => className1 == className2
+      case (IRVarPtr(typ1, _), IRVarPtr(typ2, _)) => areTypesSame(typ1, typ2)
+      case (IRAccessPtr(typ1, _), IRAccessPtr(typ2, _)) => areTypesSame(typ1, typ2)
+      case (IRWrappedFunc(funcName1, _), IRWrappedFunc(funcName2, _)) => funcName1 == funcName2
+      case (_, _) => typ1 == typ2
+    }
+  }
+
   def accessVar(name: String, bindings: Map[String, BindingData], typ: IRType): String = {
-    if(bindings(name).typ == typ) {
+
+    if(areTypesSame(bindings(name).typ, typ)) {
       bindings(name).varName
     } else {
       var newName = "%" + generateName();
@@ -157,7 +170,7 @@ object LLVM {
           addLine("  " + newName + " = load " + innerTyp.outputLLVM + ", " + bindings(name).output);
           accessVar(name, bindings + (name -> BindingData(innerTyp, newName)), typ)
         }*/
-        case (IRWrappedFunc(funcName), IRFuncPtr(args, ret)) => newName = bindings(name)._2
+        case (IRWrappedFunc(funcName, lt), IRFuncPtr(args, ret)) => newName = bindings(name)._2
         case (IRU8(), IRI16()) => addLine("  " + newName + " = zext " + bindings(name)._1.outputLLVM + " " + bindings(name)._2 + " to " + typ.outputLLVM);
         case (IRU8(), IRU16()) => addLine("  " + newName + " = zext " + bindings(name)._1.outputLLVM + " " + bindings(name)._2 + " to " + typ.outputLLVM);
         case (IRU8(), IRU32()) => addLine("  " + newName + " = zext " + bindings(name)._1.outputLLVM + " " + bindings(name)._2 + " to " + typ.outputLLVM);
@@ -232,7 +245,7 @@ object LLVM {
         }
       }
       case RhsClassAlloc(typ) => {
-        val className = typ match { case IRClass(className) => className};
+        val className = typ match { case IRClass(className, lt) => className};
         val structName = "%" + IRTypes.classMap(className)._1;
         val sizePtr = "%" + generateName("sizePtr");
         val sizeInt = "%" + generateName("sizeInt");
@@ -247,7 +260,7 @@ object LLVM {
         bindings + (varName -> BindingData(typ, "%" + varName))
       }
       case RhsFuncAlloc(func, map) => {
-        val funcName = typ match { case IRWrappedFunc(funcName) => funcName};
+        val funcName = typ match { case IRWrappedFunc(funcName, lt) => funcName};
         val structName = "%" + funcName;
         val sizePtr = "%" + generateName("sizePtr");
         val sizeInt = "%" + generateName("sizeInt");
@@ -279,7 +292,8 @@ object LLVM {
       case RhsDeref(ptrName) => {
         val typ = bindings(ptrName).typ;
         val innerTyp = typ match {
-          case IRVarPtr(typ) => typ
+          case IRVarPtr(typ, lt) => typ
+          case IRAccessPtr(typ, lt) => typ
           case _ => throw new RuntimeException("Uhh " + ptrName);
         };
         addLine("  %" + varName + " = load " + innerTyp.outputLLVM + ", " + bindings(ptrName).output);

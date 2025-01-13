@@ -35,6 +35,9 @@ object Main {
     IROpt1.performOptimizations(program);
     println(program.toString);
 
+    LifetimeSolving.solve(program);
+    println(LifetimeSolving.constraints);
+
     println("Creating LLVM IR");
     LLVM.context = LLVM.context ++ List("");
     LLVM.convertIRProgram(program);
